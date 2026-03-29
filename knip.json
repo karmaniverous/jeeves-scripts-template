@@ -1,0 +1,12 @@
+{
+  "entry": ["src/**/index.ts", "src/**/*.ts", "!src/**/*.test.ts"],
+  "project": ["src/**/*"],
+  "ignoreDependencies": ["tsx"],
+  "rules": {
+    "exports": "off",
+    "types": "off"
+  },
+  "vitest": {
+    "entry": ["src/**/*.test.ts"]
+  }
+}

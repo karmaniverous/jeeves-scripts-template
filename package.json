@@ -3,24 +3,24 @@
   "private": true,
   "description": "TypeScript runner scripts for jeeves-runner. Created from jeeves-runner-scripts-template.",
   "dependencies": {
-    "@karmaniverous/jeeves-runner": "^0.7.4"
+    "@karmaniverous/jeeves-runner": "^0.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "@types/node": "^25.0.3",
-    "@vitest/coverage-v8": "^4.0.16",
-    "@vitest/eslint-plugin": "^1.6.4",
+    "@types/node": "^25.5.0",
+    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/eslint-plugin": "^1.6.13",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-prettier": "^5.5.5",
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "knip": "^5.79.0",
-    "lefthook": "^2.0.13",
-    "prettier": "^3.7.4",
-    "tsx": "^4.19.4",
+    "lefthook": "^2.1.4",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.51.0",
-    "vitest": "^4.0.16"
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^4.1.2"
   },
   "engines": {
     "node": ">=22"

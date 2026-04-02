@@ -3,7 +3,8 @@
  * Delete this file when you start building real scripts.
  */
 
-import { runScript } from '../lib/run-script.js';
+import { runScript } from '@karmaniverous/jeeves';
+
 import { getRunnerClient } from '../lib/runner-client.js';
 
 // Every script is wrapped in runScript() for crash handling.

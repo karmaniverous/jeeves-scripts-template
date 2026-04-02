@@ -1,8 +1,9 @@
 {
   "author": "",
   "private": true,
-  "description": "TypeScript runner scripts for jeeves-runner. Created from jeeves-runner-scripts-template.",
+  "description": "TypeScript scripts for the Jeeves platform. Created from jeeves-scripts-template.",
   "dependencies": {
+    "@karmaniverous/jeeves": "^0.4.7",
     "@karmaniverous/jeeves-runner": "^0.8.3"
   },
   "devDependencies": {
@@ -26,7 +27,7 @@
     "node": ">=22"
   },
   "license": "BSD-3-Clause",
-  "name": "jeeves-runner-scripts",
+  "name": "jeeves-scripts",
   "scripts": {
     "knip": "knip",
     "lint": "eslint .",

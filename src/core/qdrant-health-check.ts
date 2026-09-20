@@ -2,11 +2,13 @@
 /**
  * @module qdrant-health-check
  *
- * Monitors Qdrant vector database health by checking collection status
- * and optimizer state via the HTTP API. When a collection enters "red"
- * status or the optimizer reports an error (e.g. stuck file locks
- * preventing segment compaction), restarts the Qdrant system service
- * to clear the condition.
+ * Monitors Qdrant vector database health by first confirming the
+ * /healthz endpoint is reachable, then inspecting each collection's
+ * status and optimizer state via the HTTP API. When Qdrant is
+ * unreachable, a collection enters "red" status, or the optimizer
+ * reports an error (e.g. stuck file locks preventing segment
+ * compaction), restarts the Qdrant system service to clear the
+ * condition.
  *
  * Exits 0 on healthy or successful restart. Exits non-zero only when
  * the restart itself fails.
@@ -15,16 +17,22 @@
  */
 
 import { execSync } from 'node:child_process';
-import http from 'node:http';
 
 import { runScript } from '@karmaniverous/jeeves';
 
 import { QDRANT_API_URL, QDRANT_SERVICE_NAME } from '../lib/constants.js';
 
-/** Shape of a single collection's detail response. */
-interface CollectionDetail {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/** Shape of a single collection's detail response from Qdrant. */
+export interface CollectionInfo {
   status: string;
-  optimizer_status: 'ok' | { error: string };
+  /**
+   * Qdrant returns either the string "ok" when the optimizer is healthy,
+   * or an object { error: string } when it is not. Treat any other string
+   * value as unhealthy.
+   */
+  optimizer_status: string | { error: string } | Record<string, unknown>;
   segments_count: number;
   points_count: number;
 }
@@ -40,46 +48,94 @@ interface CollectionsList {
   collections: { name: string }[];
 }
 
-/**
- * Perform a GET request and parse the JSON response.
- */
-function httpGet<T>(url: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    http
-      .get(url, (res) => {
-        let data = '';
-        res.on('data', (chunk: string) => (data += chunk));
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(data) as T);
-          } catch {
-            reject(new Error(`Failed to parse response from ${url}: ${data}`));
-          }
-        });
-      })
-      .on('error', reject);
-  });
+/** /healthz response. */
+interface QdrantHealth {
+  title: string;
+  version: string;
 }
+
+// ── Pure helpers (exported for testing) ───────────────────────────────────────
+
+/**
+ * Perform a GET request using the global fetch API, validate HTTP status,
+ * and return the parsed JSON body. Throws if the response is not 2xx.
+ */
+export async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Qdrant API error: ${response.status} ${response.statusText}`,
+    );
+  }
+  const data = await response.json();
+  return data as T;
+}
+
+/**
+ * Determine if a collection's optimizer is healthy based on its
+ * optimizer_status field. Handles both the string form ("ok") and the
+ * object form ({ error: "…" }) returned by the Qdrant API.
+ */
+export function isCollectionHealthy(info: CollectionInfo): boolean {
+  const status = info.optimizer_status;
+  if (typeof status === 'string') return status === 'ok';
+  if (typeof status === 'object' && status !== null) return !('error' in status);
+  return false;
+}
+
+// ── Service control ───────────────────────────────────────────────────────────
 
 /**
  * Restart the Qdrant system service using the platform-appropriate command.
  */
 function restartService(): void {
-  const serviceName = QDRANT_SERVICE_NAME;
-
   if (process.platform === 'win32') {
     execSync(
-      `powershell -Command "Restart-Service -Name '${serviceName}' -Force"`,
+      `powershell -Command "Restart-Service -Name '${QDRANT_SERVICE_NAME}' -Force"`,
       { timeout: 30_000 },
     );
   } else {
-    execSync(`systemctl restart ${serviceName}`, { timeout: 30_000 });
+    execSync(`systemctl restart ${QDRANT_SERVICE_NAME}`, { timeout: 30_000 });
   }
 }
 
-async function main() {
-  const collectionsResp = await httpGet<QdrantResponse<CollectionsList>>(
-    `${QDRANT_API_URL}/collections`,
+/**
+ * Attempt to restart the service and log the outcome.
+ * Sets process.exitCode = 1 if the restart fails; never throws.
+ */
+function attemptRestart(): void {
+  console.log(`Restarting ${QDRANT_SERVICE_NAME} service...`);
+  try {
+    restartService();
+    console.log(`✓ ${QDRANT_SERVICE_NAME} restarted successfully.`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`✗ Failed to restart ${QDRANT_SERVICE_NAME}: ${msg}`);
+    process.exitCode = 1;
+  }
+}
+
+// ── Core check logic (exported for testing) ───────────────────────────────────
+
+/**
+ * Run the full Qdrant health check sequence:
+ * 1. Check /healthz — restart immediately if unreachable.
+ * 2. Inspect each collection — restart if any is unhealthy.
+ */
+export async function runHealthCheck(apiUrl: string): Promise<void> {
+  // Step 1: Basic connectivity / liveness check
+  try {
+    await fetchJson<QdrantHealth>(`${apiUrl}/healthz`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`✗ Qdrant health endpoint unreachable: ${msg}`);
+    attemptRestart();
+    return;
+  }
+
+  // Step 2: Enumerate collections
+  const collectionsResp = await fetchJson<QdrantResponse<CollectionsList>>(
+    `${apiUrl}/collections`,
   );
 
   const collections = collectionsResp.result.collections;
@@ -89,22 +145,27 @@ async function main() {
     return;
   }
 
+  // Step 3: Inspect each collection
   let needsRestart = false;
   const issues: string[] = [];
 
   for (const { name } of collections) {
-    const detail = await httpGet<QdrantResponse<CollectionDetail>>(
-      `${QDRANT_API_URL}/collections/${encodeURIComponent(name)}`,
+    const detail = await fetchJson<QdrantResponse<CollectionInfo>>(
+      `${apiUrl}/collections/${encodeURIComponent(name)}`,
     );
 
-    const { status, optimizer_status, segments_count, points_count } =
-      detail.result;
+    const info = detail.result;
+    const { status, segments_count, points_count } = info;
 
-    const optimizerError =
-      typeof optimizer_status !== 'string' ? optimizer_status.error : null;
-
-    if (status === 'red' || optimizerError) {
+    if (status === 'red' || !isCollectionHealthy(info)) {
       needsRestart = true;
+      const optimizerStatus = info.optimizer_status;
+      const optimizerError =
+        typeof optimizerStatus === 'object' &&
+        optimizerStatus !== null &&
+        'error' in optimizerStatus
+          ? String((optimizerStatus as { error: unknown }).error)
+          : null;
       const reason = optimizerError
         ? `optimizer error: ${optimizerError}`
         : `status: ${status}`;
@@ -127,16 +188,13 @@ async function main() {
     console.log(`⚠ ${issue}`);
   }
 
-  console.log(`Restarting ${QDRANT_SERVICE_NAME} service...`);
+  attemptRestart();
+}
 
-  try {
-    restartService();
-    console.log(`✓ ${QDRANT_SERVICE_NAME} restarted successfully.`);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`✗ Failed to restart ${QDRANT_SERVICE_NAME}: ${msg}`);
-    process.exitCode = 1;
-  }
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  await runHealthCheck(QDRANT_API_URL);
 }
 
 runScript('core/qdrant-health-check', main);

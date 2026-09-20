@@ -294,6 +294,21 @@ export const ENTITY_TYPES: EntityTypeConfig[] = [
   },
 ];
 
+// ========== Qdrant [OPTIONAL] ==========
+
+/**
+ * Base URL for the Qdrant HTTP API.
+ * Override with the QDRANT_API_URL environment variable on non-default installs.
+ */
+export const QDRANT_API_URL =
+  process.env.QDRANT_API_URL ?? 'http://localhost:6333';
+
+/**
+ * System service name for Qdrant.
+ * Used by qdrant-health-check.ts to restart the service via systemctl / Restart-Service.
+ */
+export const QDRANT_SERVICE_NAME = 'qdrant';
+
 // ========== Gateway [REQUIRED] ==========
 
 /**

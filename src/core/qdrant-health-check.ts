@@ -64,7 +64,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(
-      `Qdrant API error: ${response.status} ${response.statusText}`,
+      `Qdrant API error: ${String(response.status)} ${response.statusText}`,
     );
   }
   const data = await response.json();
@@ -79,7 +79,7 @@ export async function fetchJson<T>(url: string): Promise<T> {
 export function isCollectionHealthy(info: CollectionInfo): boolean {
   const status = info.optimizer_status;
   if (typeof status === 'string') return status === 'ok';
-  if (typeof status === 'object' && status !== null) return !('error' in status);
+  if (typeof status === 'object') return !('error' in status);
   return false;
 }
 
@@ -161,9 +161,7 @@ export async function runHealthCheck(apiUrl: string): Promise<void> {
       needsRestart = true;
       const optimizerStatus = info.optimizer_status;
       const optimizerError =
-        typeof optimizerStatus === 'object' &&
-        optimizerStatus !== null &&
-        'error' in optimizerStatus
+        typeof optimizerStatus === 'object' && 'error' in optimizerStatus
           ? String((optimizerStatus as { error: unknown }).error)
           : null;
       const reason = optimizerError

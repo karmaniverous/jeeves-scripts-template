@@ -46,9 +46,7 @@ function patchSubagentMessageTool(): void {
   const distDir = resolveOpenClawDist();
   console.log(`[patch-subagent-message-tool] OpenClaw dist: ${distDir}`);
 
-  const files = fs
-    .readdirSync(distDir)
-    .filter((f) => FILE_PATTERN.test(f));
+  const files = fs.readdirSync(distDir).filter((f) => FILE_PATTERN.test(f));
 
   if (files.length === 0) {
     console.error(

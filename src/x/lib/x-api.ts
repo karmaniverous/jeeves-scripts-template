@@ -315,7 +315,7 @@ export async function createPost(
 
   const res = await client.posts.create(body);
   return {
-    id: res.data?.id as string | undefined,
+    id: res.data?.id,
   };
 }
 
@@ -328,7 +328,7 @@ export async function likePost(
   const userId = await lookupUser(client, handle);
   if (!userId) return false;
 
-  await client.users.likePost(userId, { body: { tweetId } });
+  await client.users.likePost(userId, { tweetId });
   return true;
 }
 
@@ -354,7 +354,7 @@ export async function repostPost(
   const userId = await lookupUser(client, handle);
   if (!userId) return false;
 
-  await client.users.repostPost(userId, { body: { tweetId } });
+  await client.users.repostPost(userId, { tweetId });
   return true;
 }
 

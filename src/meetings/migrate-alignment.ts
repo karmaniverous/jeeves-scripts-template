@@ -116,7 +116,7 @@ function inferDate(meta: Record<string, unknown>, meetingId: string): string {
   }
 
   // Fallback: today
-  void meetingId;
+  meetingId;
   return new Date().toISOString().slice(0, 10);
 }
 

@@ -3,10 +3,29 @@
     "id": "sweep-orphaned-tmp",
     "name": "Sweep Orphaned Tmp Files",
     "script": "src/core/sweep-orphaned-tmp.ts",
-    "schedule": { "freq": "minutely", "interval": 59, "timezone": "UTC" },
+    "schedule": {
+      "freq": "minutely",
+      "interval": 59,
+      "timezone": "UTC"
+    },
     "description": "Remove orphaned .tmp files left by crashed atomic write operations in workspace directories.",
     "overlap_policy": "skip",
     "timeout_seconds": 120,
+    "enabled": true,
+    "domain": "core",
+    "prerequisite": null
+  },
+  {
+    "id": "qdrant-health-check",
+    "name": "Qdrant Health Check",
+    "script": "src/core/qdrant-health-check.ts",
+    "schedule": {
+      "freq": "hourly",
+      "interval": 4
+    },
+    "description": "Monitor Qdrant collection status and optimizer health. Restart the service automatically when collections enter red status or the optimizer is stuck.",
+    "overlap_policy": "skip",
+    "timeout_seconds": 60,
     "enabled": true,
     "domain": "core",
     "prerequisite": null

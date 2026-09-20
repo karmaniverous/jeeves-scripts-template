@@ -1,0 +1,37 @@
+{
+  "_comment": "Seeded on first deploy by jeeves-tools --scope scripts. Edit this file to configure accounts, buckets, and refs. Secrets (IMAP passwords, etc.) must NOT be stored here — use the S3 secrets path and reference them at runtime. See pipeline-config.ts for full schema.",
+  "accounts": [
+    {
+      "email": "user@example.com",
+      "type": "gmail",
+      "emailPolling": true,
+      "calendar": {
+        "serviceAccount": "auto"
+      }
+    }
+  ],
+  "buckets": {
+    "domains": [
+      {
+        "pattern": "example.com",
+        "bucket": "example"
+      }
+    ],
+    "priority": [
+      "example"
+    ]
+  },
+  "refs": {
+    "slack.general": "C0000000000"
+  },
+  "emailConfig": {
+    "reportOnly": false,
+    "receipt": {
+      "forwardJGS": false,
+      "sparkReceiptsForwardTo": ""
+    },
+    "digest": {
+      "slackChannelId": ""
+    }
+  }
+}

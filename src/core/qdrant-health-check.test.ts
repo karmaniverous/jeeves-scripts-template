@@ -3,10 +3,10 @@ import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  type CollectionInfo,
   fetchJson,
   isCollectionHealthy,
   runHealthCheck,
-  type CollectionInfo,
 } from './qdrant-health-check.js';
 
 // Replace execSync with a controllable mock for all tests in this file.
@@ -37,17 +37,20 @@ function okResponse(body: unknown): Response {
     ok: true,
     status: 200,
     statusText: 'OK',
-    json: async () => body,
+    json: () => Promise.resolve(body),
   } as unknown as Response;
 }
 
 /** Build a failed fetch Response stub. */
-function errorResponse(status = 503, statusText = 'Service Unavailable'): Response {
+function errorResponse(
+  status = 503,
+  statusText = 'Service Unavailable',
+): Response {
   return {
     ok: false,
     status,
     statusText,
-    json: async () => ({}),
+    json: () => Promise.resolve({}),
   } as unknown as Response;
 }
 
@@ -71,24 +74,36 @@ function detailResponse(info: Partial<CollectionInfo> = {}): Response {
 
 describe('isCollectionHealthy', () => {
   it('returns true when optimizer_status is the string "ok"', () => {
-    expect(isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'ok' }))).toBe(true);
+    expect(
+      isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'ok' })),
+    ).toBe(true);
   });
 
   it('returns false when optimizer_status is any other string', () => {
-    expect(isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'error' }))).toBe(false);
-    expect(isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'degraded' }))).toBe(false);
+    expect(
+      isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'error' })),
+    ).toBe(false);
+    expect(
+      isCollectionHealthy(makeCollectionInfo({ optimizer_status: 'degraded' })),
+    ).toBe(false);
   });
 
   it('returns false when optimizer_status is an object with an error key', () => {
     expect(
-      isCollectionHealthy(makeCollectionInfo({ optimizer_status: { error: 'stuck lock' } })),
+      isCollectionHealthy(
+        makeCollectionInfo({ optimizer_status: { error: 'stuck lock' } }),
+      ),
     ).toBe(false);
   });
 
   it('returns true when optimizer_status is an object without an error key', () => {
-    expect(isCollectionHealthy(makeCollectionInfo({ optimizer_status: {} }))).toBe(true);
     expect(
-      isCollectionHealthy(makeCollectionInfo({ optimizer_status: { info: 'optimizing' } })),
+      isCollectionHealthy(makeCollectionInfo({ optimizer_status: {} })),
+    ).toBe(true);
+    expect(
+      isCollectionHealthy(
+        makeCollectionInfo({ optimizer_status: { info: 'optimizing' } }),
+      ),
     ).toBe(true);
   });
 });
@@ -108,7 +123,10 @@ describe('fetchJson', () => {
   });
 
   it('throws with status info when the response is not ok', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(errorResponse(503, 'Service Unavailable')));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(errorResponse(503, 'Service Unavailable')),
+    );
     await expect(fetchJson(TEST_URL)).rejects.toThrow(
       'Qdrant API error: 503 Service Unavailable',
     );
@@ -133,10 +151,13 @@ describe('runHealthCheck', () => {
   it('does not restart when all collections are healthy', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(HEALTHZ_OK)
         .mockResolvedValueOnce(collectionsResponse(['vectors']))
-        .mockResolvedValueOnce(detailResponse({ optimizer_status: 'ok', status: 'green' })),
+        .mockResolvedValueOnce(
+          detailResponse({ optimizer_status: 'ok', status: 'green' }),
+        ),
     );
 
     await runHealthCheck(TEST_URL);
@@ -147,7 +168,8 @@ describe('runHealthCheck', () => {
   it('does not restart when collections list is empty', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(HEALTHZ_OK)
         .mockResolvedValueOnce(collectionsResponse([])),
     );
@@ -160,7 +182,8 @@ describe('runHealthCheck', () => {
   it('restarts when a collection has optimizer_status "error"', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(HEALTHZ_OK)
         .mockResolvedValueOnce(collectionsResponse(['vectors']))
         .mockResolvedValueOnce(detailResponse({ optimizer_status: 'error' })),
@@ -174,7 +197,8 @@ describe('runHealthCheck', () => {
   it('restarts when a collection has optimizer_status { error: "..." }', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(HEALTHZ_OK)
         .mockResolvedValueOnce(collectionsResponse(['vectors']))
         .mockResolvedValueOnce(
@@ -218,13 +242,16 @@ describe('runHealthCheck', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(HEALTHZ_OK)
         .mockResolvedValueOnce(collectionsResponse(['vectors']))
         .mockResolvedValueOnce(detailResponse({ status: 'red' })),
     );
 
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
 
     await expect(runHealthCheck(TEST_URL)).resolves.not.toThrow();
 

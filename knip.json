@@ -1,7 +1,7 @@
 {
   "entry": ["src/**/index.ts", "src/**/*.ts", "!src/**/*.test.ts", "src/slack/lib/map-helpers.cjs"],
   "project": ["src/**/*"],
-  "ignoreDependencies": ["git-cliff", "tsx"],
+  "ignoreDependencies": ["git-cliff"],
   "rules": {
     "exports": "off",
     "types": "off"

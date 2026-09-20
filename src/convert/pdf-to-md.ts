@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 
 import { getArg, runScript } from '@karmaniverous/jeeves';
-import pdfParse from 'pdf-parse';
+import { PDFParse } from 'pdf-parse';
 
 import {
   findFiles,
@@ -45,16 +45,18 @@ async function main(): Promise<void> {
     try {
       console.log(`CONVERT ${filePath}`);
       const buffer = readFileSync(filePath);
-      const data = await pdfParse(buffer);
+      const parser = new PDFParse({ data: buffer });
+      const textResult = await parser.getText();
+      await parser.destroy();
 
       writeMdFile(
         mdPath,
         {
           source: filePath,
           converted: new Date().toISOString(),
-          pages: data.numpages,
+          pages: textResult.total,
         },
-        data.text,
+        textResult.text,
       );
       converted++;
     } catch (e) {

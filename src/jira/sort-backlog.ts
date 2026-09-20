@@ -15,15 +15,11 @@
  */
 
 import {
-  makeAuthHeader,
-  readApiToken,
-} from './lib/jira-client.js';
-
-import {
   JIRA_API_TOKEN_PATH,
   JIRA_EMAIL,
   JIRA_SITE_URL,
 } from '../lib/constants.js';
+import { makeAuthHeader, readApiToken } from './lib/jira-client.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -31,7 +27,9 @@ import {
 
 const BOARD_ID = Number(process.env.JIRA_BOARD_ID ?? '');
 if (!BOARD_ID || isNaN(BOARD_ID)) {
-  console.error('Error: Set JIRA_BOARD_ID environment variable to your Jira board ID.');
+  console.error(
+    'Error: Set JIRA_BOARD_ID environment variable to your Jira board ID.',
+  );
   process.exit(1);
 }
 const RANK_BATCH_SIZE = 50; // Jira Agile API max per call
@@ -41,7 +39,7 @@ const RANK_BATCH_SIZE = 50; // Jira Agile API max per call
  * Issues with no priority (null) sort to top per requirements.
  */
 const PRIORITY_ORDER: (string | null)[] = [
-  null,       // No priority → top
+  null, // No priority → top
   'Highest',
   'High',
   'Medium',
@@ -67,7 +65,7 @@ async function agileGet<T>(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Agile GET ${res.status} ${path}: ${body}`);
+    throw new Error(`Agile GET ${String(res.status)} ${path}: ${body}`);
   }
   return res.json() as Promise<T>;
 }
@@ -89,7 +87,7 @@ async function agilePut(
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Agile PUT ${res.status} ${path}: ${body}`);
+    throw new Error(`Agile PUT ${String(res.status)} ${path}: ${body}`);
   }
 }
 
@@ -120,10 +118,10 @@ async function fetchBacklog(authHeader: string): Promise<AgileIssue[]> {
   let startAt = 0;
   const pageSize = 50;
 
-  while (true) {
+  for (;;) {
     const page = await agileGet<BoardBacklogResponse>(
       authHeader,
-      `board/${BOARD_ID}/backlog`,
+      `board/${String(BOARD_ID)}/backlog`,
       {
         startAt: String(startAt),
         maxResults: String(pageSize),
@@ -204,7 +202,7 @@ async function rerank(
         });
       } else {
         console.log(
-          `[dry-run] Would rank ${batch.length} issues (batch ${b}) before ${anchor}`,
+          `[dry-run] Would rank ${String(batch.length)} issues (batch ${String(b)}) before ${anchor}`,
         );
       }
       apiCalls++;
@@ -220,7 +218,7 @@ async function rerank(
         });
       } else {
         console.log(
-          `[dry-run] Would rank ${rest.length} issues (batch ${b} tail) after ${first}`,
+          `[dry-run] Would rank ${String(rest.length)} issues (batch ${String(b)} tail) after ${first}`,
         );
       }
       apiCalls++;
@@ -251,22 +249,24 @@ async function main(): Promise<void> {
   const authHeader = makeAuthHeader(JIRA_EMAIL, apiToken);
 
   // 1. Fetch backlog
-  console.log(`Fetching backlog from board ${BOARD_ID}...`);
+  console.log(`Fetching backlog from board ${String(BOARD_ID)}...`);
   const backlog = await fetchBacklog(authHeader);
-  console.log(`  ${backlog.length} issues in backlog\n`);
+  console.log(`  ${String(backlog.length)} issues in backlog\n`);
 
   if (backlog.length <= 1) {
     console.log('Nothing to sort.');
     return;
   }
 
-  console.log(`  (${backlog.length} total, filtering epics next)`);
+  console.log(`  (${String(backlog.length)} total, filtering epics next)`);
 
   // 2. Filter out epics
   const epics = backlog.filter((i) => i.fields.issuetype?.name === 'Epic');
   const issues = backlog.filter((i) => i.fields.issuetype?.name !== 'Epic');
   if (epics.length > 0) {
-    console.log(`  Skipping ${epics.length} epic(s) — not included in sort\n`);
+    console.log(
+      `  Skipping ${String(epics.length)} epic(s) — not included in sort\n`,
+    );
   }
 
   // 3. Count by priority
@@ -275,17 +275,17 @@ async function main(): Promise<void> {
     const p = getPriorityName(issue) ?? '(none)';
     counts.set(p, (counts.get(p) ?? 0) + 1);
   }
-  console.log(`Sorting ${issues.length} non-epic issues.\n`);
+  console.log(`Sorting ${String(issues.length)} non-epic issues.\n`);
   console.log('Priority distribution:');
   for (const p of PRIORITY_ORDER) {
     const label = p ?? '(none)';
     const count = counts.get(label) ?? 0;
-    if (count > 0) console.log(`  ${label}: ${count}`);
+    if (count > 0) console.log(`  ${label}: ${String(count)}`);
   }
   // Any priorities not in our known list
   for (const [p, c] of counts) {
     if (!PRIORITY_ORDER.includes(p === '(none)' ? null : p)) {
-      console.log(`  ${p}: ${c} (unknown — sorted just before Lowest)`);
+      console.log(`  ${p}: ${String(c)} (unknown — sorted just before Lowest)`);
     }
   }
   console.log();
@@ -312,7 +312,7 @@ async function main(): Promise<void> {
     }
   }
   console.log(
-    `${diffCount} of ${currentKeys.length} issues will change position (first diff at rank ${firstDiff + 1}).\n`,
+    `${String(diffCount)} of ${String(currentKeys.length)} issues will change position (first diff at rank ${String(firstDiff + 1)}).\n`,
   );
 
   // 6. Re-rank
@@ -321,7 +321,9 @@ async function main(): Promise<void> {
     for (let i = 0; i < Math.min(10, sorted.length); i++) {
       const s = sorted[i];
       const p = getPriorityName(s) ?? '(none)';
-      console.log(`  ${i + 1}. ${s.key} [${p}] ${s.fields.summary ?? ''}`);
+      console.log(
+        `  ${String(i + 1)}. ${s.key} [${p}] ${s.fields.summary ?? ''}`,
+      );
     }
     console.log();
   }
@@ -329,15 +331,15 @@ async function main(): Promise<void> {
   const calls = await rerank(authHeader, sortedKeys, live);
 
   if (live) {
-    console.log(`✅ Backlog re-ranked. ${calls} API call(s).`);
+    console.log(`✅ Backlog re-ranked. ${String(calls)} API call(s).`);
   } else {
     console.log(
-      `[dry-run] Would make ~${Math.ceil(sortedKeys.length / RANK_BATCH_SIZE)} API call(s). Run with --live to apply.`,
+      `[dry-run] Would make ~${String(Math.ceil(sortedKeys.length / RANK_BATCH_SIZE))} API call(s). Run with --live to apply.`,
     );
   }
 }
 
-main().catch((err) => {
+main().catch((err: unknown) => {
   console.error('Fatal:', err);
   process.exit(1);
 });

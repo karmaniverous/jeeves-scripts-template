@@ -32,7 +32,7 @@ const INSERT_BEFORE = 'grep';
 
 /**
  * Find the dist file containing the toolOrder array.
- * Scans all system-prompt-*.js files.
+ * Scans all system-prompt-* files (.js and .mjs).
  */
 function findToolOrderFile(distDir: string): string | null {
   const candidates = fs
@@ -40,11 +40,7 @@ function findToolOrderFile(distDir: string): string | null {
     .filter(
       (f) =>
         f.startsWith('system-prompt') &&
-        f.endsWith('.js') &&
-        !f.includes('cache-boundary') &&
-        !f.includes('override') &&
-        !f.includes('params') &&
-        !f.includes('report'),
+        (f.endsWith('.js') || f.endsWith('.mjs')),
     );
 
   for (const file of candidates) {

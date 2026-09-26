@@ -2,11 +2,16 @@
 /**
  * @module patch-openclaw
  *
- * Orchestrator: run all OpenClaw post-install patches in sequence.
+ * Orchestrator: run all OpenClaw post-install patches.
  *
- * Designed to run after every `npm install -g openclaw@latest`.
- * Invokes each patch script (patch-tool-order, patch-also-allow-policy) as a
- * child process, in order.
+ * Designed to run after every `npm install -g openclaw@latest`. Each patch
+ * script runs as its own child process; a failure in one does not skip
+ * the others. Prints a per-patch summary and exits non-zero if any patch
+ * failed. `--dry-run` is forwarded to every patch (nothing is written).
+ *
+ * Restart the gateway after a live run so it loads the patched dist.
+ *
+ * Usage: tsx src/admin/patch-openclaw.ts [--dry-run]
  */
 
 import { execSync } from 'node:child_process';
@@ -14,6 +19,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runScript } from '@karmaniverous/jeeves';
+
+import { isDryRun } from './lib/dist-patch-io.js';
+import {
+  formatPatchSummary,
+  type PatchRunResult,
+  runAllPatches,
+} from './lib/patch-runner.js';
 
 // ── Config ─────────────────────────────────────────────────────────────
 
@@ -26,23 +38,47 @@ const PATCHES = [
 
 // ── Core logic ─────────────────────────────────────────────────────────
 
+function runPatchScript(
+  adminDir: string,
+  script: string,
+  args: string[],
+): PatchRunResult {
+  const scriptPath = path.join(adminDir, script);
+  console.log(`\n${'─'.repeat(60)}`);
+  console.log(`[patch-openclaw] Running: ${script} ${args.join(' ')}`);
+  console.log('─'.repeat(60));
+
+  try {
+    const flags = args.map((a) => ` ${a}`).join('');
+    execSync(`tsx "${scriptPath}"${flags}`, {
+      stdio: 'inherit',
+    });
+    return { script, ok: true, exitCode: 0 };
+  } catch (err) {
+    const status = (err as { status?: unknown }).status;
+    return {
+      script,
+      ok: false,
+      exitCode: typeof status === 'number' ? status : null,
+    };
+  }
+}
+
 function patchOpenClaw(): void {
   const adminDir = path.dirname(fileURLToPath(import.meta.url));
+  const args = isDryRun() ? ['--dry-run'] : [];
 
-  for (const script of PATCHES) {
-    const scriptPath = path.join(adminDir, script);
-    console.log(`\n${'─'.repeat(60)}`);
-    console.log(`[patch-openclaw] Running: ${script}`);
-    console.log('─'.repeat(60));
-
-    execSync(`tsx "${scriptPath}"`, {
-      stdio: 'inherit',
-      encoding: 'utf8',
-    });
-  }
+  const results = runAllPatches(PATCHES, (script) =>
+    runPatchScript(adminDir, script, args),
+  );
 
   console.log(`\n${'─'.repeat(60)}`);
-  console.log('[patch-openclaw] All patches applied.');
+  console.log(
+    `[patch-openclaw] Summary${args.length > 0 ? ' (DRY RUN — nothing written)' : ''}:`,
+  );
+  for (const line of formatPatchSummary(results)) console.log(line);
+
+  if (results.some((r) => !r.ok)) process.exitCode = 1;
 }
 
 runScript('patch-openclaw', patchOpenClaw);

@@ -8,14 +8,18 @@
  *
  * - Idempotent: no-ops if already patched.
  * - Safe: uninstalled tools are filtered out at prompt-build time.
+ * - `--dry-run`: report the would-be toolOrder; write nothing.
  * - Designed to run after every `npm install -g openclaw@latest`.
+ *
+ * Usage: tsx src/admin/patch-tool-order.ts [--dry-run]
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runScript } from '@karmaniverous/jeeves';
+import { atomicWrite, runScript } from '@karmaniverous/jeeves';
 
+import { isDryRun } from './lib/dist-patch-io.js';
 import {
   buildToolOrderString,
   parseToolOrder,
@@ -58,8 +62,11 @@ function findToolOrderFile(distDir: string): string | null {
 // ── Core logic ─────────────────────────────────────────────────────────
 
 function patchToolOrder(): void {
+  const dryRun = isDryRun();
   const distDir = resolveOpenClawDist();
-  console.log(`[patch-tool-order] OpenClaw dist: ${distDir}`);
+  console.log(
+    `[patch-tool-order] ${dryRun ? 'DRY RUN — ' : ''}OpenClaw dist: ${distDir}`,
+  );
 
   const filePath = findToolOrderFile(distDir);
 
@@ -133,10 +140,14 @@ function patchToolOrder(): void {
   const patchedString = buildToolOrderString(parsed.prefix, patched);
   const newContent = content.replace(parsed.match, patchedString);
 
-  // Atomic write.
-  const tmpPath = filePath + '.tmp';
-  fs.writeFileSync(tmpPath, newContent, 'utf8');
-  fs.renameSync(tmpPath, filePath);
+  if (dryRun) {
+    console.log(
+      `[patch-tool-order] WOULD PATCH ${path.basename(filePath)} (dry run, nothing written).`,
+    );
+    return;
+  }
+
+  atomicWrite(filePath, newContent);
 
   console.log('[patch-tool-order] Patched successfully.');
 }

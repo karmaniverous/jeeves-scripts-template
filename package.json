@@ -50,7 +50,7 @@
   "type": "module",
   "version": "0.0.0",
   "allowScripts": {
-    "esbuild@0.28.1": true,
-    "lefthook@2.1.14": true
+    "esbuild": true,
+    "lefthook": true
   }
 }

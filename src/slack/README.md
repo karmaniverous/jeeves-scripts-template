@@ -5,7 +5,7 @@ Polls Slack channels for new messages across configured workspaces, auto-discove
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `poll.ts` | Auto-discovers channels, fetches history and thread replies via Slack API, writes individual JSON files per message to silo-routed directories. Supports multi-account/multi-workspace scenarios. |
 
 ## Data Flow
@@ -35,14 +35,14 @@ flowchart LR
 - Slack bot token configured (via environment variable or config file)
 - `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH` set in `constants.ts`
 
-| Job | Schedule |
-|-----|----------|
+| Job          | Schedule     |
+| ------------ | ------------ |
 | `slack-poll` | Every 11 min |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `lib/slack-api.ts` | Typed Slack Web API wrappers — `fetchHistory()`, `fetchReplies()`, `discoverChannels()`, `slackApi()`, `SlackFileMetadata` type, with pagination |
 | `../lib/constants.ts` | Workspace routing constants |
 | `../lib/silo-router.ts` | `getBasePathForSlackWorkspace()` for output directory routing (see [Configuration Files](../lib/README.md#configuration-files) for `silo-routing.json` schema) |

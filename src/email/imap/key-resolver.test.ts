@@ -124,4 +124,33 @@ describe('resolveKey', () => {
       'resolved to nothing',
     );
   });
+
+  it('uses the first match when a path matches multiple values', () => {
+    const msg = makeMsg({
+      extensions: { 'x-gm-thrid': '255', 'x-gm-msgid': '256' },
+    });
+    // Wildcard yields ['255', '256']; only the first match is used.
+    const result = resolveKey(['$.extensions.*'], msg);
+    expect(result).toBe('ff');
+  });
+
+  it('stringifies a numeric match', () => {
+    const msg = makeMsg({ uid: 4096 });
+    expect(resolveKey(['$.uid'], msg)).toBe('1000');
+  });
+
+  it('keeps an array-valued match wrapped and rejects it', () => {
+    const msg = makeMsg({ flags: ['\\Seen'] });
+    // With wrap: true the array value arrives as a single match, not spread.
+    expect(() => resolveKey(['$.flags'], msg)).toThrow(
+      'non-stringifiable value',
+    );
+  });
+
+  it('throws when a path resolves to an object', () => {
+    const msg = makeMsg();
+    expect(() => resolveKey(['$.body'], msg)).toThrow(
+      'non-stringifiable value',
+    );
+  });
 });

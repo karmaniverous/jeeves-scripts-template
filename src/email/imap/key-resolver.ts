@@ -21,9 +21,12 @@ import type { NormalizedMessage } from './normalize.js';
 
 /** Evaluate one JSONPath expression against msg; return string result. */
 function evaluatePath(path: string, msg: NormalizedMessage): string {
-  const result: unknown = JSONPath({
+  // jsonpath-plus 11 types JSONPath() as unknown. Request wrap explicitly so
+  // matches always arrive as an array, then narrow before array use.
+  const result = JSONPath({
     path,
     json: msg,
+    wrap: true,
   });
 
   if (!Array.isArray(result) || result.length === 0) {

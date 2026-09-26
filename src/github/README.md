@@ -5,7 +5,7 @@ GitHub repo sync, issue sync, notification monitoring, and collaborator manageme
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `build-registry.ts` | Enumerates all accessible GitHub repos (with push access) and external org repos, builds a JSON registry with metadata and social policy classification |
 | `sync-repos.ts` | Shallow-clones or pulls tracked repos in round-robin batches (15 per run) via runner state_items |
 | `sync-issues.ts` | Fetches issues for tracked repos in round-robin batches (10 per run), stores as JSON with diff history via fast-json-patch |
@@ -41,19 +41,19 @@ flowchart LR
 - GitHub CLI authenticated (`gh auth login`) for both `GH_ACCOUNT` and `GH_BOT_USER`
 - `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER` set in `constants.ts`
 
-| Job | Schedule |
-|-----|----------|
+| Job                     | Schedule           |
+| ----------------------- | ------------------ |
 | `github-build-registry` | Daily at 02:13 UTC |
-| `github-sync-repos` | Every 19 min |
-| `github-sync-issues` | Every 23 min |
-| `github-watch` | Every 29 min |
-| `github-poll-collabs` | Daily at 03:07 UTC |
-| `github-drain-collabs` | Every 31 min |
+| `github-sync-repos`     | Every 19 min       |
+| `github-sync-issues`    | Every 23 min       |
+| `github-watch`          | Every 29 min       |
+| `github-poll-collabs`   | Daily at 03:07 UTC |
+| `github-drain-collabs`  | Every 31 min       |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `../lib/gh.ts` | GitHub CLI wrappers — `gh()`, `ghJson()`, `ghApi()`, `setupGhConfig()` |
 | `../lib/silo-router.ts` | `getBasePathForGitHubOrg()` for org-based output routing (see [Configuration Files](../lib/README.md#configuration-files) for `silo-routing.json` schema) |
 | `../lib/constants.ts` | GitHub-specific constants (accounts, paths, registry location) |

@@ -40,10 +40,10 @@ Schema:
     "slack:channel:C12345": {
       "models": {
         "anthropic/claude-sonnet-4-6": {
-          "input":      { "count": 50000, "cost": 0.15 },
-          "output":     { "count": 12000, "cost": 0.06 },
-          "cacheRead":  { "count": 80000, "cost": 0.024 },
-          "cacheWrite": { "count": 5000,  "cost": 0.01875 }
+          "input": { "count": 50000, "cost": 0.15 },
+          "output": { "count": 12000, "cost": 0.06 },
+          "cacheRead": { "count": 80000, "cost": 0.024 },
+          "cacheWrite": { "count": 5000, "cost": 0.01875 }
         }
       }
     }
@@ -144,7 +144,7 @@ Edit `token-rates.json` directly. The schema:
     "anthropic/claude-sonnet-4-6": {
       "input": 3.0,
       "output": 15.0,
-      "cacheRead": 0.30,
+      "cacheRead": 0.3,
       "cacheWrite": 3.75
     }
   }

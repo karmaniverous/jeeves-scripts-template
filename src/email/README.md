@@ -33,16 +33,16 @@ flowchart TD
 
 ## Runner Jobs
 
-| Job | Script | Schedule |
-|-----|--------|----------|
-| `poll-email` | `poll.ts` | Every 11 min |
-| `download-email` | `google-workspace/download.ts` | Every 17 min |
-| `drain-email-updates` | `google-workspace/drain-updates.ts` | Every 5 min |
+| Job                   | Script                              | Schedule     |
+| --------------------- | ----------------------------------- | ------------ |
+| `poll-email`          | `poll.ts`                           | Every 11 min |
+| `download-email`      | `google-workspace/download.ts`      | Every 17 min |
+| `drain-email-updates` | `google-workspace/drain-updates.ts` | Every 5 min  |
 
 ## Shared Modules
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `poll.ts` | Unified entry point — IMAP accounts polled directly, gog accounts searched/classified/enqueued |
 | `email-cache.ts` | Per-thread JSON cache — load, save, create/update, detect label changes |
 | `email-state.ts` | Per-thread and per-account state in runner SQLite store |
@@ -64,7 +64,7 @@ Called by `poll.ts` for accounts with an `imap` block in pipeline config.
 ### Modules
 
 | Module | Purpose |
-|--------|---------|
+| --- | --- |
 | `account-types.ts` | Account type registry — maps type names (`gmail`, `imap`) to provider-specific behavior: IMAP extensions, key resolvers, label normalization, folder enumeration |
 | `normalize.ts` | `NormalizedMessage` interface + normalizer that maps `imapflow` fetch results + `mailparser` output into a stable abstraction |
 | `key-resolver.ts` | JSONPath evaluation against `NormalizedMessage`, auto-transform (decimal → hex, else → SHA-256 truncated to 16 hex chars) |
@@ -73,7 +73,7 @@ Called by `poll.ts` for accounts with an `imap` block in pipeline config.
 ### Account Type Registry
 
 | Type | Extensions | Thread Key Source | Label Source |
-|------|-----------|-------------------|--------------|
+| --- | --- | --- | --- |
 | `gmail` | `X-GM-THRID`, `X-GM-MSGID`, `X-GM-LABELS` | Gmail thread ID (decimal → hex) | Gmail labels (normalized to API format) |
 | `imap` | _(none)_ | `References` header thread root (SHA-256) | IMAP flags (normalized to standard vocabulary) |
 
@@ -97,7 +97,7 @@ Gmail polling via the `gog` CLI (Google OAuth). Handles search, classification, 
 ### Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `download.ts` | Dequeues threads from `email-pending` and downloads full message bodies, headers, and attachments |
 | `drain-updates.ts` | Dequeues label-change actions from `email-updates` and applies them to Gmail via `gog gmail thread modify` |
 | `email-fetch.ts` | Fetch full thread metadata from Gmail, update cache/provenance, enqueue for download |

@@ -5,7 +5,7 @@ Polls Google Calendar events for configured accounts and writes individual JSON 
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `poll.ts` | Iterates accounts from pipeline-config, fetches events via Calendar API, writes JSON files to silo-routed directories with change detection |
 
 ## Data Flow
@@ -28,14 +28,14 @@ flowchart LR
 - Calendar accounts listed in `pipeline-config.json` (see [Configuration Files](../lib/README.md#configuration-files) for schema and creation instructions)
 - `GOG_CLIENT_PATH` and `GOG_CONFIG_DIR` set in `constants.ts`
 
-| Job | Schedule |
-|-----|----------|
+| Job             | Schedule     |
+| --------------- | ------------ |
 | `calendar-poll` | Every 17 min |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `lib/calendar-api.ts` | Google Calendar REST API helpers — `listCalendars()` and `getAllEvents()` with pagination |
 | `../lib/pipeline-config.ts` | Provides `getCalendarAccounts()` |
 | `../lib/silo-router.ts` | Provides `getBasePathForEmailDomain()` for output routing |

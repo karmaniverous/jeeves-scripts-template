@@ -4,9 +4,7 @@ When updated: 2026-03-29T11:15:00Z
 
 ## Overview
 
-Template repository for TypeScript runner scripts targeting jeeves-runner.
-Provides shared infrastructure (crash handler, runner client, shell utils,
-filesystem helpers) and quality tooling (ESLint, Prettier, Vitest, knip, STAN).
+Template repository for TypeScript runner scripts targeting jeeves-runner. Provides shared infrastructure (crash handler, runner client, shell utils, filesystem helpers) and quality tooling (ESLint, Prettier, Vitest, knip, STAN).
 
 Scripts are executed directly via tsx — this is NOT a library build.
 

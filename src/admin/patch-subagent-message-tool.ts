@@ -2,115 +2,81 @@
 /**
  * @module patch-subagent-message-tool
  *
- * Patch OpenClaw's subagent-spawn code to enable the message tool
- * for subagent sessions. The upstream code hardcodes
- * `disableMessageTool: true` for all sessions_spawn subagents,
- * preventing runner-dispatched workers from reading Slack channels
- * or posting results via the message tool.
+ * Re-enable the `message` tool for sub-agents spawned via
+ * `sessions_spawn` (e.g. runner-dispatched LLM workers that read Slack
+ * or post results). OpenClaw blocks it in two layers; both are patched:
  *
- * - Idempotent: no-ops if already patched.
- * - Targeted: only patches the subagent-spawn occurrence in
- *   openclaw-tools-*.js, not crestodian or other internal uses.
- * - Designed to run after every `npm install -g openclaw@latest`.
+ * 1. Spawn flag: `disableMessageTool: true` → `false` in the sub-agent
+ *    launch request (anchored on `lane: AGENT_LANE_SUBAGENT`).
+ * 2. Deny list: `"message"` removed from `SUBAGENT_TOOL_DENY_ALWAYS`.
+ *
+ * Chunks are located by content across `.js` and `.mjs` (OpenClaw
+ * 2026.9.6+ ships hashed `.mjs` chunks). Each layer must match exactly
+ * once across the whole dist; zero or multiple matches abort that layer.
+ *
+ * - Idempotent: already-patched layers are reported and left alone.
+ * - `--dry-run`: print file, line, before/after; write nothing.
+ * - Designed to run after every `npm install -g openclaw@latest`
+ *   (restart the gateway afterwards to load the patched code).
+ *
+ * Usage: tsx src/admin/patch-subagent-message-tool.ts [--dry-run]
  */
-
-import fs from 'node:fs';
-import path from 'node:path';
 
 import { runScript } from '@karmaniverous/jeeves';
 
+import { applyDistPlan, findChunks, isDryRun } from './lib/dist-patch-io.js';
 import { resolveOpenClawDist } from './lib/resolve-openclaw-dist.js';
+import {
+  DENY_LIST_PREFILTER,
+  patchDenyList,
+  patchSpawnFlag,
+  SPAWN_FLAG_PREFILTER,
+} from './lib/subagent-message-patches.js';
+import { planAcrossFiles, type TextPatchResult } from './lib/text-patch.js';
 
-// ── Config ─────────────────────────────────────────────────────────────
+const TAG = 'patch-subagent-message-tool';
 
-const SEARCH = 'disableMessageTool: true';
-const REPLACE = 'disableMessageTool: false';
-
-/**
- * Target file pattern. The subagent-spawn `disableMessageTool: true`
- * lives in openclaw-tools-*.js. The other occurrence (crestodian) is
- * in chat-engine-*.js, which we leave untouched.
- */
-const FILE_PATTERN = /^openclaw-tools-.*\.js$/;
-
-/**
- * Context anchor to verify we're patching the right occurrence.
- * `cleanupBundleMcpOnRunEnd` appears near `disableMessageTool` only
- * in the subagent-spawn path.
- */
-const CONTEXT_ANCHOR = 'cleanupBundleMcpOnRunEnd';
-
-// ── Core logic ─────────────────────────────────────────────────────────
+const LAYERS: {
+  label: string;
+  prefilter: string;
+  patch: (content: string) => TextPatchResult;
+}[] = [
+  {
+    label: 'spawn flag (disableMessageTool)',
+    prefilter: SPAWN_FLAG_PREFILTER,
+    patch: patchSpawnFlag,
+  },
+  {
+    label: 'deny list (SUBAGENT_TOOL_DENY_ALWAYS)',
+    prefilter: DENY_LIST_PREFILTER,
+    patch: patchDenyList,
+  },
+];
 
 function patchSubagentMessageTool(): void {
+  const dryRun = isDryRun();
   const distDir = resolveOpenClawDist();
-  console.log(`[patch-subagent-message-tool] OpenClaw dist: ${distDir}`);
-
-  const files = fs.readdirSync(distDir).filter((f) => FILE_PATTERN.test(f));
-
-  if (files.length === 0) {
-    console.error(
-      '[patch-subagent-message-tool] No openclaw-tools-*.js file found.',
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  for (const file of files) {
-    const filePath = path.join(distDir, file);
-    const content = fs.readFileSync(filePath, 'utf8');
-
-    // Verify context anchor is present (confirms this is the right file).
-    if (!content.includes(CONTEXT_ANCHOR)) {
-      console.log(
-        `[patch-subagent-message-tool] ${file}: no context anchor — skipping.`,
-      );
-      continue;
-    }
-
-    console.log(`[patch-subagent-message-tool] Found target: ${file}`);
-
-    // Check if already patched.
-    if (!content.includes(SEARCH)) {
-      if (content.includes(REPLACE)) {
-        console.log(
-          '[patch-subagent-message-tool] Already patched — nothing to do.',
-        );
-        return;
-      }
-      console.error(
-        '[patch-subagent-message-tool] Neither search nor replace string found. Aborting.',
-      );
-      process.exitCode = 1;
-      return;
-    }
-
-    // Count occurrences to ensure we're patching exactly one.
-    const count = content.split(SEARCH).length - 1;
-
-    if (count !== 1) {
-      console.error(
-        `[patch-subagent-message-tool] Expected 1 occurrence of "${SEARCH}" in ${file}, found ${String(count)}. Aborting.`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-
-    const newContent = content.replace(SEARCH, REPLACE);
-
-    // Atomic write.
-    const tmpPath = filePath + '.tmp';
-    fs.writeFileSync(tmpPath, newContent, 'utf8');
-    fs.renameSync(tmpPath, filePath);
-
-    console.log('[patch-subagent-message-tool] Patched successfully.');
-    return;
-  }
-
-  console.error(
-    '[patch-subagent-message-tool] No matching file with context anchor found.',
+  console.log(
+    `[${TAG}] ${dryRun ? 'DRY RUN — ' : ''}OpenClaw dist: ${distDir}`,
   );
-  process.exitCode = 1;
+
+  let ok = true;
+  for (const layer of LAYERS) {
+    const results = findChunks(distDir, layer.prefilter).map((c) => ({
+      file: c.file,
+      result: layer.patch(c.content),
+    }));
+    ok =
+      applyDistPlan(
+        TAG,
+        layer.label,
+        distDir,
+        planAcrossFiles(results),
+        dryRun,
+      ) && ok;
+  }
+
+  if (!ok) process.exitCode = 1;
 }
 
-runScript('patch-subagent-message-tool', patchSubagentMessageTool);
+runScript(TAG, patchSubagentMessageTool);

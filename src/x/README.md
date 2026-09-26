@@ -5,7 +5,7 @@ Polls, posts, and engages on X/Twitter via API v2. Supports multiple accounts wi
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `poll-posts.ts` | Poll an account's own posts via X API v2 (Owned Read) |
 | `poll-mentions.ts` | Poll mentions for an account |
 | `poll-feed.ts` | Poll the home timeline — writes directly to feed/ directory |

@@ -39,7 +39,12 @@
     "id": "github-build-registry",
     "name": "GitHub Build Registry",
     "script": "src/github/build-registry.ts",
-    "schedule": { "freq": "daily", "byhour": 2, "byminute": 13, "timezone": "UTC" },
+    "schedule": {
+      "freq": "daily",
+      "byhour": 2,
+      "byminute": 13,
+      "timezone": "UTC"
+    },
     "description": "Enumerate all GitHub repos and rebuild the registry JSON file.",
     "overlap_policy": "skip",
     "timeout_seconds": 600,
@@ -51,7 +56,12 @@
     "id": "github-poll-collabs",
     "name": "GitHub Poll Collabs",
     "script": "src/github/poll-collabs.ts",
-    "schedule": { "freq": "daily", "byhour": 3, "byminute": 7, "timezone": "UTC" },
+    "schedule": {
+      "freq": "daily",
+      "byhour": 3,
+      "byminute": 7,
+      "timezone": "UTC"
+    },
     "description": "Poll repos for missing bot collaborator access and enqueue for remediation.",
     "overlap_policy": "skip",
     "timeout_seconds": 300,

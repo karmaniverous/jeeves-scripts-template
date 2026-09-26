@@ -5,7 +5,7 @@ Meeting extraction from three independent sources — Google Meet (via email), F
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `extract.ts` | Scans the email cache for meeting-related threads, detects source (Google Meet, Fathom), creates meeting packages with metadata and artifacts |
 | `fetch-notes.ts` | Walks meeting directories, fetches Gemini doc transcripts and Fathom transcripts for meetings that need them |
 | `ingest-notion.ts` | Polls a Notion inbox database, fetches meeting content via browser extraction, stages artifacts locally, archives the inbox page |
@@ -49,16 +49,16 @@ Each meeting lives in a directory under `{silo}/meetings/{meetingId}/`:
 - For Notion ingestion: `NOTION_API_KEY_PATH` and inbox database ID in pipeline-config refs (see [Configuration Files](../lib/README.md#configuration-files) for `pipeline-config.json` schema and creation instructions)
 - Chrome installed (for Fathom share page extraction via puppeteer-core)
 
-| Job | Schedule |
-|-----|----------|
-| `meetings-extract` | Every 13 min |
-| `meetings-fetch-notes` | Every 19 min |
+| Job                      | Schedule                           |
+| ------------------------ | ---------------------------------- |
+| `meetings-extract`       | Every 13 min                       |
+| `meetings-fetch-notes`   | Every 19 min                       |
 | `meetings-ingest-notion` | Every 23 min (disabled by default) |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `lib/meeting-schema.ts` | Canonical meeting.json Zod schema, `writeMeetingMeta()`, sort timestamp computation |
 | `lib/detect.ts` | Meeting detection — subject matching, title normalization, participant extraction, Fathom URL detection, meeting ID generation |
 | `lib/package.ts` | Creates/updates meeting package directories and artifacts, manages runner-state index |

@@ -8,32 +8,32 @@
     "@xdevplatform/xdk": "^0.6.6",
     "date-fns": "^4.4.0",
     "fast-json-patch": "^3.1.1",
-    "imapflow": "^2.0.5",
-    "jsonpath-plus": "^10.4.0",
+    "imapflow": "^2.0.7",
+    "jsonpath-plus": "^11.1.0",
     "mailparser": "^3.9.28",
     "mammoth": "^1.12.3",
     "pdf-parse": "^2.4.5",
-    "puppeteer-core": "^25.11.0",
+    "puppeteer-core": "^25.12.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/mailparser": "^3.4.6",
-    "@types/node": "^26.6.2",
-    "@vitest/coverage-v8": "^5.0.1",
+    "@types/node": "^26.6.3",
+    "@vitest/coverage-v8": "^5.0.2",
     "@vitest/eslint-plugin": "^1.6.27",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-simple-import-sort": "^14.0.0",
     "git-cliff": "^2.14.2",
-    "knip": "^6.37.0",
+    "knip": "^6.38.0",
     "lefthook": "^2.1.14",
-    "prettier": "^3.9.8",
+    "prettier": "^3.9.9",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0",
-    "vitest": "^5.0.1"
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.2"
   },
   "engines": {
     "node": ">=22"
@@ -48,5 +48,9 @@
     "typecheck": "tsc"
   },
   "type": "module",
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "allowScripts": {
+    "esbuild": true,
+    "lefthook": true
+  }
 }

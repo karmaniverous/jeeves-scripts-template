@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildToolOrderString,
+  evaluateToolOrderPatch,
   parseToolOrder,
 } from './patch-tool-order-utils.js';
 
@@ -93,5 +94,61 @@ describe('buildToolOrderString', () => {
     const reparsed = parseToolOrder(rebuilt);
     expect(reparsed!.tools).toEqual(parsed.tools);
     expect(reparsed!.prefix).toBe(parsed.prefix);
+  });
+});
+
+// ── evaluateToolOrderPatch ──────────────────────────────────────────
+
+describe('evaluateToolOrderPatch', () => {
+  const INSERT = ['watcher_search', 'watcher_scan'];
+  const SRC = 'x();\n\tconst toolOrder = ["read", "grep", "glob"];\n';
+
+  it('inserts before the anchor with line, before and after', () => {
+    const r = evaluateToolOrderPatch(SRC, INSERT, 'grep');
+    expect(r.status).toBe('patch');
+    if (r.status !== 'patch') return;
+    expect(r.line).toBe(2);
+    expect(r.before).toBe('const toolOrder = ["read", "grep", "glob"]');
+    expect(r.after).toBe(
+      buildToolOrderString('const ', [
+        'read',
+        'watcher_search',
+        'watcher_scan',
+        'grep',
+        'glob',
+      ]),
+    );
+    expect(r.content).toBe(`x();\n\t${r.after};\n`);
+    expect(evaluateToolOrderPatch(r.content, INSERT, 'grep').status).toBe(
+      'already-patched',
+    );
+  });
+
+  it('re-inserts cleanly when partially patched', () => {
+    const src = 'toolOrder = ["watcher_scan", "read", "grep"]';
+    const r = evaluateToolOrderPatch(src, INSERT, 'grep');
+    expect(r.status).toBe('patch');
+    if (r.status !== 'patch') return;
+    expect(parseToolOrder(r.content)!.tools).toEqual([
+      'read',
+      'watcher_search',
+      'watcher_scan',
+      'grep',
+    ]);
+  });
+
+  it('reports not-found when there is no toolOrder assignment', () => {
+    expect(
+      evaluateToolOrderPatch('const toolOrderX = 1;', INSERT, 'grep').status,
+    ).toBe('not-found');
+  });
+
+  it.each([
+    ['multiple toolOrder arrays', `${SRC}${SRC}`, 'grep'],
+    ['a missing anchor', SRC, 'nope'],
+  ])('is ambiguous for %s', (_label, content, anchor) => {
+    expect(evaluateToolOrderPatch(content, INSERT, anchor).status).toBe(
+      'ambiguous',
+    );
   });
 });

@@ -36,6 +36,26 @@ export function runAllPatches(
   });
 }
 
+/**
+ * Narrow an unknown child-process failure (e.g. from `execSync`) into an
+ * exit code and a one-line cause. Never throws, whatever was thrown.
+ */
+export function describeExecFailure(err: unknown): {
+  exitCode: number | null;
+  error: string;
+} {
+  const props: Record<string, unknown> =
+    typeof err === 'object' && err !== null ? { ...err } : {};
+  const { status, signal } = props;
+  const message = err instanceof Error ? err.message : String(err);
+  const firstLine = message.split('\n')[0].trim() || 'unknown error';
+  return {
+    exitCode: typeof status === 'number' ? status : null,
+    error:
+      typeof signal === 'string' && signal ? `killed by ${signal}` : firstLine,
+  };
+}
+
 /** Human-readable per-patch summary lines. */
 export function formatPatchSummary(
   results: readonly PatchRunResult[],

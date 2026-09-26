@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classifyAlsoAllowPolicy,
+  decideAlsoAllow,
   LEGACY_PATCHED,
   LEGACY_UNPATCHED,
   patchLegacyAlsoAllow,
@@ -46,6 +47,40 @@ describe('classifyAlsoAllowPolicy', () => {
         `${TOOL_POLICY_HAS_RESTRICTIVE}\n${TOOL_POLICY_HAS_RESTRICTIVE}`,
       ).state,
     ).toBe('unknown');
+  });
+});
+
+describe('decideAlsoAllow', () => {
+  it('fails when no chunk defines the function', () => {
+    expect(decideAlsoAllow([{ file: 'a.mjs', state: 'absent' }]).action).toBe(
+      'fail',
+    );
+    expect(decideAlsoAllow([]).action).toBe('fail');
+  });
+
+  it.each([
+    ['two legacy chunks', 'legacy-unpatched', 'legacy-unpatched'],
+    ['two fixed chunks', 'upstream-fixed', 'upstream-fixed'],
+    ['patched + unpatched', 'legacy-patched', 'legacy-unpatched'],
+  ] as const)('fails closed on %s', (_label, a, b) => {
+    const d = decideAlsoAllow([
+      { file: 'a.mjs', state: a },
+      { file: 'b.js', state: 'absent' },
+      { file: 'c.js', state: b },
+    ]);
+    expect(d.action).toBe('fail');
+    if (d.action !== 'fail') return;
+    expect(d.message).toContain('2 chunks (expected 1): a.mjs, c.js');
+  });
+
+  it('maps a single chunk state to an action', () => {
+    const one = (
+      state: Parameters<typeof decideAlsoAllow>[0][number]['state'],
+    ) => decideAlsoAllow([{ file: 'a.mjs', state }]);
+    expect(one('upstream-fixed').action).toBe('noop');
+    expect(one('legacy-patched').action).toBe('noop');
+    expect(one('legacy-unpatched')).toEqual({ action: 'patch', file: 'a.mjs' });
+    expect(one('unknown').action).toBe('fail');
   });
 });
 

@@ -101,10 +101,9 @@ describe('planAcrossFiles', () => {
       { file: 'a.mjs', result: patch },
       { file: 'b.js', result: done },
     ]);
-    expect(plan).toMatchObject({
-      status: 'error',
-      message: expect.stringContaining('a.mjs, b.js') as unknown,
-    });
+    expect(plan.status).toBe('error');
+    if (plan.status !== 'error') return;
+    expect(plan.message).toContain('a.mjs, b.js');
   });
 
   it('propagates per-file ambiguity', () => {

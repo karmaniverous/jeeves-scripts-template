@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  describeExecFailure,
   formatPatchSummary,
   type PatchRunResult,
   runAllPatches,
@@ -22,6 +23,40 @@ describe('runAllPatches', () => {
       { script: 'b.ts', ok: false, exitCode: null, error: 'boom' },
       { script: 'c.ts', ok: true, exitCode: 0 },
     ]);
+  });
+});
+
+describe('describeExecFailure', () => {
+  it('extracts exit status and first message line from an exec error', () => {
+    const err = Object.assign(new Error('Command failed: tsx x.ts\nmore'), {
+      status: 2,
+      signal: null,
+    });
+    expect(describeExecFailure(err)).toEqual({
+      exitCode: 2,
+      error: 'Command failed: tsx x.ts',
+    });
+  });
+
+  it('reports the terminating signal', () => {
+    const err = Object.assign(new Error('Command failed'), {
+      status: null,
+      signal: 'SIGTERM',
+    });
+    expect(describeExecFailure(err)).toEqual({
+      exitCode: null,
+      error: 'killed by SIGTERM',
+    });
+  });
+
+  it.each([
+    [null, 'null'],
+    [undefined, 'undefined'],
+    ['boom', 'boom'],
+    [42, '42'],
+    [{ status: 'x' }, '[object Object]'],
+  ])('never throws on non-Error rejection %j', (err, error) => {
+    expect(describeExecFailure(err)).toEqual({ exitCode: null, error });
   });
 });
 

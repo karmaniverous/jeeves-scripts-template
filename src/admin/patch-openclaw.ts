@@ -22,6 +22,7 @@ import { runScript } from '@karmaniverous/jeeves';
 
 import { isDryRun } from './lib/dist-patch-io.js';
 import {
+  describeExecFailure,
   formatPatchSummary,
   type PatchRunResult,
   runAllPatches,
@@ -55,12 +56,7 @@ function runPatchScript(
     });
     return { script, ok: true, exitCode: 0 };
   } catch (err) {
-    const status = (err as { status?: unknown }).status;
-    return {
-      script,
-      ok: false,
-      exitCode: typeof status === 'number' ? status : null,
-    };
+    return { script, ok: false, ...describeExecFailure(err) };
   }
 }
 

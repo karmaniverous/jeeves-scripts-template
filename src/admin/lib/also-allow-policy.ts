@@ -79,6 +79,55 @@ export function classifyAlsoAllowPolicy(content: string): {
   return { state: 'unknown', line };
 }
 
+/** What the patch script should do given every chunk's classification. */
+export type AlsoAllowDecision =
+  | { action: 'fail'; message: string }
+  | { action: 'noop'; message: string }
+  | { action: 'patch'; file: string };
+
+/**
+ * Decide the action across all scanned chunks. Exactly one chunk may
+ * define `hasRestrictiveAllowPolicy`; zero or several fail closed so a
+ * duplicated or unexpected layout is never partially or multiply patched.
+ */
+export function decideAlsoAllow(
+  chunks: readonly { file: string; state: AlsoAllowState }[],
+): AlsoAllowDecision {
+  const present = chunks.filter((c) => c.state !== 'absent');
+  if (present.length === 0) {
+    return {
+      action: 'fail',
+      message:
+        'hasRestrictiveAllowPolicy definition not found in any .js/.mjs chunk.',
+    };
+  }
+  if (present.length > 1) {
+    return {
+      action: 'fail',
+      message: `hasRestrictiveAllowPolicy defined in ${String(present.length)} chunks (expected 1): ${present.map((c) => c.file).join(', ')}. Review before patching.`,
+    };
+  }
+
+  const [c] = present;
+  switch (c.state) {
+    case 'upstream-fixed':
+      return {
+        action: 'noop',
+        message:
+          'Not needed: upstream hasRestrictiveAllowPolicy already treats alsoAllow ("*" + extras) as non-restrictive. No changes.',
+      };
+    case 'legacy-patched':
+      return { action: 'noop', message: 'Already patched — nothing to do.' };
+    case 'legacy-unpatched':
+      return { action: 'patch', file: c.file };
+    default:
+      return {
+        action: 'fail',
+        message: `unrecognised hasRestrictiveAllowPolicy in ${c.file}. OpenClaw may have changed; review before patching.`,
+      };
+  }
+}
+
 const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Apply the legacy early-bail patch (only valid for legacy builds). */

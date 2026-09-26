@@ -12,7 +12,7 @@ Token metrics collection, session cost management, and OpenClaw post-install pat
 | `refresh-token-rates.ts` | Dispatches an LLM session to fetch current published API pricing and update the rate card config |
 | `recalculate-token-metrics.ts` | Safe recalculation of token metrics for a date range with backup and dry-run support |
 | `patch-openclaw.ts` | Orchestrator that runs every OpenClaw post-install patch (one failure never skips the rest), prints a per-patch summary, exits non-zero on any failure. Forwards `--dry-run` |
-| `patch-tool-order.ts` | Patches OpenClaw's toolOrder array to insert Jeeves component tools above grep |
+| `patch-tool-order.ts` | Patches OpenClaw's toolOrder array (located by content in any chunk) to insert Jeeves component tools above grep |
 | `patch-also-allow-policy.ts` | Ensures `tools.alsoAllow` is not treated as a restrictive allowlist. No-op on OpenClaw ≥ 2026.9.x (fixed upstream); legacy patch for older builds |
 | `patch-subagent-message-tool.ts` | Re-enables the `message` tool for `sessions_spawn` sub-agents: flips `disableMessageTool` in the launch request and removes `"message"` from `SUBAGENT_TOOL_DENY_ALWAYS` |
 
@@ -62,7 +62,7 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | `lib/dist-patch-io.ts` | Finds dist chunks by content (.js/.mjs), previews or atomically applies a patch plan, `--dry-run` flag |
 | `lib/openclaw-dist-fixtures.ts` | Verbatim OpenClaw v2026.9.6 dist snippets used as patch test fixtures |
 | `lib/patch-runner.ts` | Runs patch scripts independently and formats the per-patch summary |
-| `lib/patch-tool-order-utils.ts` | Pure helpers for toolOrder parsing and formatting |
+| `lib/patch-tool-order-utils.ts` | Pure helpers for toolOrder parsing/formatting and the per-chunk toolOrder patch evaluation |
 | `lib/subagent-message-patches.ts` | Pure patch definitions for the sub-agent spawn flag and deny list |
 | `lib/text-patch.ts` | Pure anchored/idempotent text-patch primitives and cross-file plan reduction |
 | `lib/rate-card.ts` | Token rate card loader and cost calculator ($/MTok) |

@@ -5,7 +5,7 @@ Entity lifecycle maintenance — sweeps duplicate entities and disables stale me
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `sweep-duplicates.ts` | Scans entity directories for rejections (deletes entity) and duplicates (merges files into original, then deletes duplicate). Uses copy + delete instead of move because watcher holds file locks. |
 | `disable-old-meta.ts` | Disables stale meta entries for time-bounded entity types. If an entity's date exceeds `maxAgeDays` and synthesis is complete (`_content` exists), writes `_disabled: true` to prevent further synthesis scheduling. |
 
@@ -28,14 +28,14 @@ flowchart LR
 
 No external prerequisites. Operates on local filesystem entity directories.
 
-| Job | Schedule |
-|-----|----------|
-| `meta-sweep-duplicates` | Every 29 min |
-| `meta-disable-old` | Daily at 04:11 UTC |
+| Job                     | Schedule           |
+| ----------------------- | ------------------ |
+| `meta-sweep-duplicates` | Every 29 min       |
+| `meta-disable-old`      | Daily at 04:11 UTC |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `../lib/constants.ts` | `ENTITY_TYPES` array defining entity type config |
 | `../lib/silo-router.ts` | `getEntityDirs()` for cross-silo directory discovery |

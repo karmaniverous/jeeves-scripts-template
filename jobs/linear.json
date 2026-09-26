@@ -4,7 +4,12 @@
     "id": "linear-sync-issues",
     "name": "Linear Sync Issues",
     "script": "src/linear/sync-issues.ts",
-    "schedule": { "timezone": "UTC", "rules": [{ "effect": "event", "options": { "freq": "minutely", "interval": 23 } }] },
+    "schedule": {
+      "timezone": "UTC",
+      "rules": [
+        { "effect": "event", "options": { "freq": "minutely", "interval": 23 } }
+      ]
+    },
     "description": "Poll Linear GraphQL API for issue changes since last sync cursor.",
     "overlap_policy": "skip",
     "timeout_seconds": 600,
@@ -16,7 +21,12 @@
     "id": "linear-sync-comments",
     "name": "Linear Sync Comments",
     "script": "src/linear/sync-comments.ts",
-    "schedule": { "timezone": "UTC", "rules": [{ "effect": "event", "options": { "freq": "minutely", "interval": 29 } }] },
+    "schedule": {
+      "timezone": "UTC",
+      "rules": [
+        { "effect": "event", "options": { "freq": "minutely", "interval": 29 } }
+      ]
+    },
     "description": "Poll Linear GraphQL API for comment changes since last sync cursor.",
     "overlap_policy": "skip",
     "timeout_seconds": 600,

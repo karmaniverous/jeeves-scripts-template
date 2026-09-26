@@ -37,7 +37,7 @@ flowchart TD
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `drain.ts` | Webhook drain — reads stdin, routes by event type, persists entity snapshots |
 | `backfill.ts` | One-time historical import via Jira REST API (`--project KEY [--type issue] [--live]`) |
 | `refresh-fields.ts` | Fetch field metadata and write `_fields.json` (daily runner job) |
@@ -46,7 +46,7 @@ flowchart TD
 Supporting modules in `lib/`:
 
 | Module | Description |
-|--------|-------------|
+| --- | --- |
 | `../lib/entity-store.ts` | `upsertEntity`, `backfillEntity`, `deleteEntity`, `writeUnmatched`, `readStdinJson` — shared file I/O with diff history (see [entity-store docs](../lib/README.md#entity-storets)) |
 | `lib/jira-client.ts` | `jiraGet`, `searchIssues` — typed Jira REST API v3 client |
 
@@ -77,13 +77,13 @@ Supporting modules in `lib/`:
 
 ### Entity Key Extraction
 
-| Entity Type | Payload Object | Key Field | Example File |
-|-------------|----------------|-----------|--------------|
-| `issue`     | `body.issue`   | `key`     | `issue/WEB-1.json` |
+| Entity Type | Payload Object | Key Field | Example File         |
+| ----------- | -------------- | --------- | -------------------- |
+| `issue`     | `body.issue`   | `key`     | `issue/WEB-1.json`   |
 | `comment`   | `body.comment` | `id`      | `comment/12345.json` |
 | `version`   | `body.version` | `id`      | `version/67890.json` |
-| `sprint`    | `body.sprint`  | `id`      | `sprint/1001.json` |
-| `board`     | `body.board`   | `id`      | `board/2001.json` |
+| `sprint`    | `body.sprint`  | `id`      | `sprint/1001.json`   |
+| `board`     | `body.board`   | `id`      | `board/2001.json`    |
 
 ### Entity File Format
 
@@ -98,7 +98,11 @@ Each entity file is a JSON object with the following structure:
     {
       "ts": "2026-01-15T10:00:00.000Z",
       "patch": [
-        { "op": "replace", "path": "/fields/status/name", "value": "In Progress" }
+        {
+          "op": "replace",
+          "path": "/fields/status/name",
+          "value": "In Progress"
+        }
       ]
     }
   ],
@@ -135,10 +139,10 @@ Add this block to your jeeves-server Event Gateway configuration:
       {
         "pattern": "jira",
         "cmd": ["tsx", "{SCRIPTS_DIR}/src/jira/drain.ts"],
-        "timeoutMs": 10000
-      }
-    ]
-  }
+        "timeoutMs": 10000,
+      },
+    ],
+  },
 }
 ```
 
@@ -165,7 +169,7 @@ The map is updated daily by `refresh-fields.ts` (scheduled runner job). After an
 ```json
 {
   "customfield_10001": { "id": "42", "name": "Sprint 7" },
-  "Sprint":            { "id": "42", "name": "Sprint 7" }
+  "Sprint": { "id": "42", "name": "Sprint 7" }
 }
 ```
 
@@ -186,11 +190,11 @@ tsx src/jira/backfill.ts --project WEB --type issue --live
 
 **CLI arguments:**
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--project KEY` | _(required)_ | Jira project key (e.g. `WEB`) |
-| `--type TYPE` | `issue` | Entity type to backfill |
-| `--live` | false | Perform actual writes (dry-run by default) |
+| Argument        | Default      | Description                                |
+| --------------- | ------------ | ------------------------------------------ |
+| `--project KEY` | _(required)_ | Jira project key (e.g. `WEB`)              |
+| `--type TYPE`   | `issue`      | Entity type to backfill                    |
+| `--live`        | false        | Perform actual writes (dry-run by default) |
 
 **Rate limiting:** 200 ms pause between API requests to avoid hitting Jira Cloud rate limits.
 
@@ -199,7 +203,7 @@ tsx src/jira/backfill.ts --project WEB --type issue --live
 ## Prerequisites
 
 | Prerequisite | Where to configure |
-|---|---|
+| --- | --- |
 | Jira Cloud account with API token | [id.atlassian.com → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `JIRA_SITE_URL` | `src/lib/constants.ts` — e.g. `'https://mysite.atlassian.net'` |
 | `JIRA_EMAIL` | `src/lib/constants.ts` — Atlassian account email |
@@ -211,7 +215,7 @@ tsx src/jira/backfill.ts --project WEB --type issue --live
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `drain.ts` | Webhook drain entry point — stdin pipe from Event Gateway |
 | `backfill.ts` | One-time historical backfill via REST API |
 | `refresh-fields.ts` | Daily custom field metadata refresh |

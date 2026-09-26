@@ -25,8 +25,8 @@ The runner needs a tsx runner for `.ts` files:
 ```jsonc
 {
   "runners": {
-    "ts": "node {scriptsDir}/node_modules/tsx/dist/cli.mjs"
-  }
+    "ts": "node {scriptsDir}/node_modules/tsx/dist/cli.mjs",
+  },
 }
 ```
 
@@ -35,7 +35,7 @@ The runner needs a tsx runner for `.ts` files:
 Runner job manifests live in `jobs/` (one JSON file per domain). Scripts are organized by domain under `src/`:
 
 | Domain | Description | README |
-|--------|-------------|--------|
+| --- | --- | --- |
 | `admin/` | Token metrics, session refresh, maintenance | [README](src/admin/README.md) |
 | `calendar/` | Google Calendar event polling | [README](src/calendar/README.md) |
 | `convert/` | DOCX/PDF → Markdown conversion | [README](src/convert/README.md) |
@@ -91,7 +91,11 @@ import { runDispatcher } from '@karmaniverous/jeeves-runner';
 import { SPAWN_WORKER_PATH } from '../lib/constants.js';
 
 runScript('domain/my-dispatcher', () => {
-  runDispatcher(task, { jobId: 'my-dispatcher', thinking: 'low' }, SPAWN_WORKER_PATH);
+  runDispatcher(
+    task,
+    { jobId: 'my-dispatcher', thinking: 'low' },
+    SPAWN_WORKER_PATH,
+  );
 });
 ```
 
@@ -140,12 +144,12 @@ The `meetings/` domain is the exemplar: three independent extractors (Google Mee
 
 This repo uses the [STAN](https://github.com/karmaniverous/stan) toolchain (ESLint, Prettier, TypeScript, Vitest, Knip, Lefthook).
 
-| Gate | Command | What it checks |
-|------|---------|----------------|
-| Typecheck | `npm run typecheck` | TypeScript strict mode |
-| Lint | `npm run lint` | ESLint + Prettier |
-| Test | `npm run test` | Vitest test suite |
-| Knip | `npm run knip` | Unused exports and dependencies |
+| Gate      | Command             | What it checks                  |
+| --------- | ------------------- | ------------------------------- |
+| Typecheck | `npm run typecheck` | TypeScript strict mode          |
+| Lint      | `npm run lint`      | ESLint + Prettier               |
+| Test      | `npm run test`      | Vitest test suite               |
+| Knip      | `npm run knip`      | Unused exports and dependencies |
 
 Run all four before committing: `npm run typecheck && npm run lint && npm test && npm run knip`
 

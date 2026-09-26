@@ -5,7 +5,7 @@ Framework for autonomous LLM task dispatchers that read Markdown task files and 
 ## Scripts
 
 | Script | Description |
-|--------|-------------|
+| --- | --- |
 | `daily-digest.ts` | Reads `{CONTENT_DIR}/digest/TASK.md` and dispatches a gateway session to generate and publish a daily digest. Injects authoritative date context. Prerequisite: TASK.md must exist. |
 | `social-posts.ts` | Dynamically builds a task from pipeline-config refs and content paths, then dispatches a session to generate social media posts to a Notion database. Prerequisite: `notion.socialPostsDatabaseId`, `slack.socialChannel`, `slack.operatorDm` refs in pipeline-config. |
 
@@ -67,7 +67,9 @@ import { tryGetRef } from '../lib/pipeline-config.js';
 runScript('dispatchers/my-dispatcher', () => {
   const channel = tryGetRef('slack.myChannel');
   if (!channel) {
-    console.log('[skip] Not configured — set slack.myChannel in pipeline-config.json');
+    console.log(
+      '[skip] Not configured — set slack.myChannel in pipeline-config.json',
+    );
     return;
   }
 
@@ -84,9 +86,14 @@ When a dispatcher needs an authoritative date reference (e.g. daily digests), in
 ```typescript
 const tz = 'UTC';
 const now = new Date();
-const dayName = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: tz });
+const dayName = now.toLocaleDateString('en-US', {
+  weekday: 'long',
+  timeZone: tz,
+});
 const dateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
-task = `> **Today is ${dayName}, ${dateStr} (${tz}).** Use this as the authoritative date reference.\n\n` + task;
+task =
+  `> **Today is ${dayName}, ${dateStr} (${tz}).** Use this as the authoritative date reference.\n\n` +
+  task;
 ```
 
 ## TASK File Anatomy
@@ -109,7 +116,7 @@ Example location: `{CONTENT_DIR}/digest/TASK.md`
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `../lib/constants.ts` | Provides `CONTENT_DIR`, `SPAWN_WORKER_PATH` |
 | `../lib/pipeline-config.ts` | Provides `getRef()` / `tryGetRef()` for external service IDs |
 | `../lib/spawn-worker.ts` | Gateway session spawner invoked by `runDispatcher()` |

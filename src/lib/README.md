@@ -9,6 +9,7 @@ Shared infrastructure consumed by all domain scripts. This is where instance con
 **The first file to edit on a new instance.** Centralized paths, credentials, and integration-specific values used across all scripts.
 
 Key exports:
+
 - Directory paths: `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc.
 - GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR`, `GOG_CLIENT_PATH`
@@ -148,7 +149,13 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
       "email": "user@imap-provider.com",
       "type": "imap",
       "emailPolling": true,
-      "imap": { "host": "imap.provider.com", "port": 993, "tls": true, "user": "user@imap-provider.com", "password": "..." },
+      "imap": {
+        "host": "imap.provider.com",
+        "port": 993,
+        "tls": true,
+        "user": "user@imap-provider.com",
+        "password": "..."
+      },
       "folders": ["INBOX", "Sent"]
     }
   ],
@@ -200,7 +207,10 @@ Loaded and validated by `silo-router.ts`. Routes pipeline output to the correct 
   "silos": {
     "acme": {
       "emailDomains": ["acme.com", "acme.co.uk"],
-      "githubOrgs": ["acme-corp", { "githubOrg": "acme-oss", "relativePath": "oss" }],
+      "githubOrgs": [
+        "acme-corp",
+        { "githubOrg": "acme-oss", "relativePath": "oss" }
+      ],
       "slackWorkspaces": ["T0ABC123"],
       "jira": true,
       "linear": true,

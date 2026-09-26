@@ -12,7 +12,8 @@ function loadUsers() {
 }
 
 function loadChannels() {
-  if (!channelsCache) channelsCache = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf8'));
+  if (!channelsCache)
+    channelsCache = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf8'));
   return channelsCache;
 }
 
@@ -34,7 +35,7 @@ function resolveSlackChannelMeta(channelId) {
   if (!channelId || typeof channelId !== 'string') return {};
   const channels = loadChannels();
   const ch = channels[channelId];
-  return (ch && ch.metadata) ? ch.metadata : {};
+  return ch && ch.metadata ? ch.metadata : {};
 }
 
 module.exports = { resolveSlackUserEmails, resolveSlackChannelMeta };

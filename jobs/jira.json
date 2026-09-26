@@ -4,7 +4,12 @@
     "id": "jira-refresh-fields",
     "name": "Jira Refresh Field Metadata",
     "script": "src/jira/refresh-fields.ts",
-    "schedule": { "freq": "daily", "byhour": 3, "byminute": 0, "timezone": "UTC" },
+    "schedule": {
+      "freq": "daily",
+      "byhour": 3,
+      "byminute": 0,
+      "timezone": "UTC"
+    },
     "description": "Refresh Jira custom field metadata (_fields.json) from REST API. Used by the drain script for custom field name translation.",
     "overlap_policy": "skip",
     "timeout_seconds": 60,
@@ -17,7 +22,12 @@
     "name": "Jira Backlog Priority Sort",
     "script": "src/jira/sort-backlog.ts",
     "args": ["--live"],
-    "schedule": { "freq": "daily", "byhour": 0, "byminute": 0, "timezone": "UTC" },
+    "schedule": {
+      "freq": "daily",
+      "byhour": 0,
+      "byminute": 0,
+      "timezone": "UTC"
+    },
     "description": "Stable-sort the Jira backlog by priority group (no-priority on top, then Highest \u2192 Lowest). Preserves relative order within each group. Skips epics.",
     "overlap_policy": "skip",
     "timeout_seconds": 120,

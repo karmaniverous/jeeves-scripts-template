@@ -9,7 +9,7 @@
     "date-fns": "^4.4.0",
     "fast-json-patch": "^3.1.1",
     "imapflow": "^2.0.7",
-    "jsonpath-plus": "^10.4.0",
+    "jsonpath-plus": "^11.1.0",
     "mailparser": "^3.9.28",
     "mammoth": "^1.12.3",
     "pdf-parse": "^2.4.5",
@@ -48,5 +48,9 @@
     "typecheck": "tsc"
   },
   "type": "module",
-  "version": "0.0.0"
+  "version": "0.0.0",
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "lefthook@2.1.14": true
+  }
 }

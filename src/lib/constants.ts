@@ -401,6 +401,25 @@ export const TOKEN_RATES_PATH = path.join(
 );
 
 /**
+ * Cache of Slack DM counterpart names (user id → name) learned by the
+ * token-metrics collectors, so a `slack:dm:<USERID>` channel is looked up
+ * once and then named `slack:dm:<person>`.
+ */
+export const SLACK_DM_NAMES_CACHE_PATH = path.join(
+  TOKEN_METRICS_DIR,
+  'slack-dm-names.json',
+);
+
+/**
+ * Cached Slack user map written by the Slack poller (user id → user).
+ * Read-only for token metrics (DM naming).
+ */
+export const SLACK_USERS_PATH = path.join(
+  SCRIPTS_DIR,
+  'src/slack/lib/users.json',
+);
+
+/**
  * Seed rate card shipped with the scripts repo. Copied to
  * TOKEN_RATES_PATH only when no rate card exists (never overwrites).
  */

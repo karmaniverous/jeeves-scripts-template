@@ -36,6 +36,22 @@ export interface SessionMeta {
 }
 
 /**
+ * Where a transcript without its own cursor may take its starting cursor
+ * from: an archived generation starts where the live transcript it was
+ * archived from had been counted to.
+ */
+export interface CursorSeed {
+  /** Cursor key to seed from (e.g. the live `session:<id>` key). */
+  key: string;
+  /**
+   * Accept a seed cursor that carries no generation stamp (written before
+   * generations were tracked). Only safe when this transcript must be the
+   * generation that cursor counted.
+   */
+  acceptUnstamped: boolean;
+}
+
+/**
  * A transcript available for scanning. `maxSeq` lets the scanner skip
  * fully-processed transcripts without decoding them (undefined = unknown
  * until loaded). `load` decodes and returns events ordered by seq.
@@ -46,6 +62,21 @@ export interface TranscriptRef {
   load: () => TranscriptEvent[];
   /** Channel metadata, when the store records it for this transcript. */
   meta?: SessionMeta;
+  /** Transcript generation, stamped into the cursor when known. */
+  generation?: string;
+  /**
+   * Never changes once listed (deleted/reset archives, legacy files): a
+   * fully read transcript is marked complete and never loaded again.
+   */
+  immutable?: boolean;
+  /** Starting cursor source when this transcript has no cursor yet. */
+  seed?: CursorSeed;
+  /**
+   * Generations of this key that were archived: a cursor stamped with one
+   * of them belongs to that archive, so a live transcript with a different
+   * generation restarts from seq 0.
+   */
+  retiredGenerations?: ReadonlySet<string>;
 }
 
 /** Paths a schema module may need besides the open database. */

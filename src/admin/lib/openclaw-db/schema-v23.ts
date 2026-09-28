@@ -2,27 +2,37 @@
  * @module openclaw-db/schema-v23
  *
  * ALL knowledge of OpenClaw agent-DB schema 23 (OpenClaw 2026.9.x) used by
- * token metrics: table/column names, payload encodings and integrity checks.
- * Read-only. Enumerates each session's full transcript history from:
- * - `transcript_events` hot rows (`event_json` text, or a checksummed zstd
- *   frame in `event_zstd` whose decoded size is `event_utf8_bytes`);
- * - `session_transcript_cold_archives` (zstd JSONL of `{kind, row}`
- *   records, stored as a `sessions/cold/<sha>.jsonl.zst` file or a blob;
- *   verified by byte length + sha256 and record metadata);
- * - `session_transcript_archives` (deleted/reset transcripts: JSONL with a
- *   session header line, identity or zstd encoded, sha256-verified; line
- *   index = seq, matching the hot table where seq starts at 0).
- * Channel metadata (session keys and names) comes from schema-v23-meta.ts.
+ * token metrics: table/column names and how transcripts are assembled.
+ * Payload decoding/verification lives in schema-v23-payloads.ts; channel
+ * metadata (session keys and names) in schema-v23-meta.ts. Read-only.
+ *
+ * Transcripts, per session id:
+ * - live: `transcript_events` hot rows plus the session's
+ *   `session_transcript_cold_archives` row, merged by seq (one generation;
+ *   the current one is `transcript_rewrite_watermarks.generation`). Cursor
+ *   key `session:<id>`.
+ * - archived: each `session_transcript_archives` row, keyed
+ *   `(session_id, generation)`, is its OWN immutable transcript (seq
+ *   restarts at 0 per generation; never merged by seq). Cursor key
+ *   `session:<id>#<generation>`. OpenClaw archives the live transcript on
+ *   delete/reset, so an archive seeds from the `session:<id>` cursor when
+ *   that cursor was stamped with the archive's generation (or is unstamped,
+ *   the session has no live rows left and this is its newest archive):
+ *   events already counted live are not counted again.
+ * Archives are listed first so they read the live cursor before a new
+ * generation's live scan restamps it.
  * A future schema adds schema-vNN.ts beside this file; do not edit this one.
  */
 
-import { createHash } from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import zlib from 'node:zlib';
 
 import { loadV23Meta } from './schema-v23-meta.js';
+import type { ArchiveRow, ColdRow } from './schema-v23-payloads.js';
+import {
+  decodeEventRow,
+  readArchiveEvents,
+  readColdEvents,
+} from './schema-v23-payloads.js';
 import type {
   OpenClawDbSchema,
   SchemaContext,
@@ -30,214 +40,117 @@ import type {
   TranscriptRef,
 } from './types.js';
 
-/** Largest decoded payload OpenClaw writes for one event (4 MiB). */
-const MAX_EVENT_BYTES = 4_194_304;
-
-/** Upper bound for a decoded archive (guards zstd bombs). */
-const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024;
-
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
+interface LiveSession {
+  hotMax?: number;
+  cold?: ColdRow;
 }
 
-function zstd(bytes: Uint8Array, maxOutputLength: number): Buffer {
-  if (typeof zlib.zstdDecompressSync !== 'function') {
-    throw new Error(
-      'OpenClaw schema 23 stores zstd payloads, but this Node.js runtime lacks zlib.zstdDecompressSync',
-    );
-  }
-  // zstd verifies the frame's content checksum while decoding.
-  return zlib.zstdDecompressSync(bytes, { maxOutputLength });
-}
-
-/** Decode one transcript_events row to its JSON text. */
-export function decodeEventRow(row: {
-  event_json: string | null;
-  event_zstd: Uint8Array | null;
-  event_utf8_bytes: number | null;
-}): string {
-  if (row.event_json !== null) return row.event_json;
-  const bytes = row.event_utf8_bytes;
-  if (!row.event_zstd || bytes === null || bytes < 1 || bytes > MAX_EVENT_BYTES)
-    throw new Error('Invalid compressed transcript payload bounds');
-  const decoded = zstd(row.event_zstd, bytes);
-  if (decoded.byteLength !== bytes)
-    throw new Error(
-      'Compressed transcript payload length does not match event_utf8_bytes',
-    );
-  return decoded.toString('utf8');
-}
-
-interface ColdRow {
+interface ArchiveListRow {
   session_id: string;
   generation: string;
+  session_key: string;
   archive_name: string;
-  archive_sha256: string;
-  event_count: number;
-  archive_bytes: number;
-  last_seq: number;
-  storage: string;
-  archive_blob: Uint8Array | null;
 }
 
-function readColdEvents(row: ColdRow, ctx: SchemaContext): TranscriptEvent[] {
-  let bytes: Uint8Array;
-  if (row.storage === 'sqlite') {
-    if (!row.archive_blob) throw new Error('Cold archive blob missing');
-    bytes = row.archive_blob;
-  } else {
-    if (!/^[a-f0-9]{64}\.jsonl\.zst$/.test(row.archive_name))
-      throw new Error(`Invalid cold archive name ${row.archive_name}`);
-    bytes = fs.readFileSync(
-      path.join(ctx.artifactDir, 'cold', row.archive_name),
-    );
-  }
-  if (
-    bytes.length !== row.archive_bytes ||
-    sha256(bytes) !== row.archive_sha256
-  )
-    throw new Error(`Cold archive ${row.archive_name} failed verification`);
+type HotRow = Parameters<typeof decodeEventRow>[0] & { seq: number };
 
-  const records = zstd(bytes, MAX_ARCHIVE_BYTES)
-    .toString('utf8')
-    .trimEnd()
-    .split('\n')
-    .map(
-      (line) =>
-        JSON.parse(line) as {
-          kind?: unknown;
-          sessionId?: unknown;
-          row?: { seq?: unknown; event_json?: unknown };
-        },
-    );
-  const header = records[0] as (typeof records)[number] | undefined;
-  if (header?.kind !== 'header' || header.sessionId !== row.session_id)
-    throw new Error(`Cold archive ${row.archive_name} header mismatch`);
-
-  const events: TranscriptEvent[] = [];
-  for (const record of records) {
-    if (record.kind !== 'event') continue;
-    const { seq, event_json: json } = record.row ?? {};
-    if (typeof seq !== 'number' || typeof json !== 'string')
-      throw new Error(`Cold archive ${row.archive_name} has a malformed event`);
-    events.push({ seq, json });
-  }
-  if (events.length !== row.event_count || events.at(-1)?.seq !== row.last_seq)
-    throw new Error(`Cold archive ${row.archive_name} metadata mismatch`);
-  return events;
-}
-
-interface ArchiveRow {
-  session_id: string;
-  archive_name: string;
-  encoding: string;
-  archive_blob: Uint8Array;
-  archive_sha256: string;
-}
-
-function readArchiveEvents(row: ArchiveRow): TranscriptEvent[] {
-  if (sha256(row.archive_blob) !== row.archive_sha256)
-    throw new Error(
-      `Transcript archive ${row.archive_name} failed verification`,
-    );
-  const text = (
-    row.encoding === 'zstd'
-      ? zstd(row.archive_blob, MAX_ARCHIVE_BYTES)
-      : Buffer.from(row.archive_blob)
-  ).toString('utf8');
-  const lines = text.split('\n').filter((line) => line.trim());
-  const header =
-    lines.length > 0
-      ? (JSON.parse(lines[0]) as { type?: unknown; id?: unknown })
-      : undefined;
-  if (header?.type !== 'session' || header.id !== row.session_id)
-    throw new Error(`Transcript archive ${row.archive_name} header mismatch`);
-  return lines.map((json, seq) => ({ seq, json }));
-}
-
-function listTranscripts(
-  db: DatabaseSync,
-  ctx: SchemaContext,
-): TranscriptRef[] {
-  const sessions = new Map<
-    string,
-    { hotMax?: number; cold?: ColdRow; archives: string[]; archiveKey?: string }
-  >();
+function listLive(db: DatabaseSync): Map<string, LiveSession> {
+  const live = new Map<string, LiveSession>();
   const entry = (id: string) => {
-    let e = sessions.get(id);
+    let e = live.get(id);
     if (!e) {
-      e = { archives: [] };
-      sessions.set(id, e);
+      e = {};
+      live.set(id, e);
     }
     return e;
   };
-
   const hot = db
     .prepare(
       'SELECT session_id, MAX(seq) AS max_seq FROM transcript_events GROUP BY session_id',
     )
     .all() as { session_id: string; max_seq: number }[];
   for (const r of hot) entry(r.session_id).hotMax = r.max_seq;
-
   const cold = db
     .prepare(
       'SELECT session_id, generation, archive_name, archive_sha256, event_count, archive_bytes, last_seq, storage, archive_blob FROM session_transcript_cold_archives',
     )
     .all() as unknown as ColdRow[];
   for (const r of cold) entry(r.session_id).cold = r;
+  return live;
+}
 
+function liveGenerations(db: DatabaseSync): Map<string, string> {
+  const rows = db
+    .prepare('SELECT session_id, generation FROM transcript_rewrite_watermarks')
+    .all() as { session_id: string; generation: string }[];
+  return new Map(rows.map((r) => [r.session_id, r.generation]));
+}
+
+function listTranscripts(
+  db: DatabaseSync,
+  ctx: SchemaContext,
+): TranscriptRef[] {
+  const live = listLive(db);
+  const generations = liveGenerations(db);
+  const meta = loadV23Meta(db);
   const archives = db
     .prepare(
-      'SELECT session_id, session_key, archive_name FROM session_transcript_archives ORDER BY created_at, archive_name',
+      'SELECT session_id, generation, session_key, archive_name FROM session_transcript_archives ORDER BY session_id, created_at, generation',
     )
-    .all() as {
-    session_id: string;
-    session_key: string;
-    archive_name: string;
-  }[];
-  for (const r of archives) {
-    const e = entry(r.session_id);
-    e.archives.push(r.archive_name);
-    e.archiveKey = r.session_key;
+    .all() as unknown as ArchiveListRow[];
+  const archived = new Map<string, Set<string>>();
+  const newest = new Map<string, string>();
+  for (const a of archives) {
+    const set = archived.get(a.session_id) ?? new Set<string>();
+    archived.set(a.session_id, set.add(a.generation));
+    newest.set(a.session_id, a.generation);
   }
-  const meta = loadV23Meta(db);
 
+  const archiveStmt = db.prepare(
+    'SELECT session_id, archive_name, encoding, archive_blob, archive_sha256 FROM session_transcript_archives WHERE session_id = ? AND generation = ?',
+  );
   const eventsStmt = db.prepare(
     'SELECT seq, event_json, event_zstd, event_utf8_bytes FROM transcript_events WHERE session_id = ? ORDER BY seq',
   );
-  const archiveStmt = db.prepare(
-    'SELECT session_id, archive_name, encoding, archive_blob, archive_sha256 FROM session_transcript_archives WHERE archive_name = ?',
-  );
 
-  return [...sessions].map(([sessionId, e]) => ({
+  const archiveRefs: TranscriptRef[] = archives.map((a) => ({
+    cursorKey: `session:${a.session_id}#${a.generation}`,
+    generation: a.generation,
+    immutable: true,
+    seed: {
+      key: `session:${a.session_id}`,
+      acceptUnstamped:
+        !live.has(a.session_id) && newest.get(a.session_id) === a.generation,
+    },
+    meta: meta.forSession(a.session_id) ?? meta.forKey(a.session_key),
+    maxSeq: undefined,
+    load: () =>
+      readArchiveEvents(
+        archiveStmt.get(a.session_id, a.generation) as unknown as ArchiveRow,
+      ),
+  }));
+
+  const liveRefs: TranscriptRef[] = [...live].map(([sessionId, e]) => ({
     cursorKey: `session:${sessionId}`,
-    meta:
-      meta.forSession(sessionId) ??
-      (e.archiveKey ? meta.forKey(e.archiveKey) : undefined),
-    maxSeq:
-      e.archives.length > 0
-        ? undefined
-        : Math.max(e.hotMax ?? -1, e.cold?.last_seq ?? -1),
+    generation: generations.get(sessionId) ?? e.cold?.generation,
+    retiredGenerations: archived.get(sessionId),
+    meta: meta.forSession(sessionId),
+    maxSeq: Math.max(e.hotMax ?? -1, e.cold?.last_seq ?? -1),
     load: () => {
       const bySeq = new Map<number, string>();
-      for (const name of e.archives) {
-        const row = archiveStmt.get(name) as unknown as ArchiveRow;
-        for (const ev of readArchiveEvents(row)) bySeq.set(ev.seq, ev.json);
-      }
       if (e.cold)
         for (const ev of readColdEvents(e.cold, ctx))
           bySeq.set(ev.seq, ev.json);
-      if (e.hotMax !== undefined) {
-        const rows = eventsStmt.all(sessionId) as unknown as (Parameters<
-          typeof decodeEventRow
-        >[0] & { seq: number })[];
-        for (const r of rows) bySeq.set(r.seq, decodeEventRow(r));
-      }
+      if (e.hotMax !== undefined)
+        for (const r of eventsStmt.all(sessionId) as unknown as HotRow[])
+          bySeq.set(r.seq, decodeEventRow(r));
       return [...bySeq]
-        .sort((a, b) => a[0] - b[0])
-        .map(([seq, json]) => ({ seq, json }));
+        .sort((x, y) => x[0] - y[0])
+        .map(([seq, json]): TranscriptEvent => ({ seq, json }));
     },
   }));
+
+  return [...archiveRefs, ...liveRefs];
 }
 
 /** OpenClaw agent-DB schema 23 reader. */

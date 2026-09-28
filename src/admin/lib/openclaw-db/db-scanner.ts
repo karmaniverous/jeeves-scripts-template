@@ -13,6 +13,10 @@
  *   it, so the next run picks it up; nothing in an open hour is lost);
  * - usage before `fromMs` is skipped but handled (cursor advances);
  * - other usage is counted into `[hour, channel, model]`.
+ * The starting cursor is the transcript's own, else its seed (see
+ * {@link resolvePrior}). Cursors are stamped with the transcript
+ * generation; an immutable transcript walked to its end is marked
+ * `complete` and later runs skip it without loading it.
  * With `countedOnly`, events past the pre-existing cursor are left alone
  * and the cursor is not advanced (rebuilding already-counted ranges).
  */
@@ -27,6 +31,8 @@ import type { SessionMeta, TranscriptEvent, TranscriptRef } from './types.js';
 
 /** Events used for channel detection (same as the JSONL collector). */
 const CHANNEL_HEAD_EVENTS = 50;
+
+type Cursor = DbCursorState[string];
 
 /** Options for one scan. */
 export interface DbScanOptions {
@@ -57,6 +63,54 @@ function channelFor(
 }
 
 /**
+ * The cursor a transcript starts from:
+ * - its own cursor, unless that cursor is stamped with a generation this
+ *   key has since retired (archived) and the transcript is a different
+ *   generation: then it restarts from nothing;
+ * - else its seed cursor when the seed counted this generation (stamped
+ *   with it, or unstamped and `acceptUnstamped`), marked `inherited`;
+ * - else none.
+ */
+export function resolvePrior(
+  ref: TranscriptRef,
+  cursors: DbCursorState,
+): { prior: Cursor | undefined; inherited: boolean } {
+  const own = cursors[ref.cursorKey] as Cursor | undefined;
+  if (own) {
+    const retired =
+      own.generation !== undefined &&
+      ref.generation !== undefined &&
+      own.generation !== ref.generation &&
+      ref.retiredGenerations?.has(own.generation) === true;
+    return { prior: retired ? undefined : own, inherited: false };
+  }
+  const seed = ref.seed
+    ? (cursors[ref.seed.key] as Cursor | undefined)
+    : undefined;
+  const matches =
+    seed !== undefined &&
+    (seed.generation === undefined
+      ? ref.seed?.acceptUnstamped === true
+      : seed.generation === ref.generation);
+  return matches
+    ? {
+        prior: { lastSeq: seed.lastSeq, lastTimestamp: seed.lastTimestamp },
+        inherited: true,
+      }
+    : { prior: undefined, inherited: false };
+}
+
+function sameCursor(a: Cursor | undefined, b: Cursor): boolean {
+  return (
+    a !== undefined &&
+    a.lastSeq === b.lastSeq &&
+    a.lastTimestamp === b.lastTimestamp &&
+    a.generation === b.generation &&
+    a.complete === b.complete
+  );
+}
+
+/**
  * Scan transcripts into `buckets`, updating `cursors` in place (unless
  * `countedOnly`). Models seen are added to `seenModels`.
  */
@@ -74,20 +128,18 @@ export function scanTranscripts(
   };
 
   for (const ref of transcripts) {
-    const prior = cursors[ref.cursorKey] as DbCursorState[string] | undefined;
+    const { prior, inherited } = resolvePrior(ref, cursors);
     const startSeq = prior?.lastSeq ?? -1;
     const limitSeq = options.countedOnly ? startSeq : Infinity;
     const firstSeq = options.countedOnly ? -1 : startSeq;
 
+    const done =
+      prior?.complete === true ||
+      (ref.maxSeq !== undefined && ref.maxSeq <= startSeq);
     if (
-      !options.countedOnly &&
-      ref.maxSeq !== undefined &&
-      ref.maxSeq <= startSeq
+      (!options.countedOnly && done) ||
+      (options.countedOnly && startSeq < 0)
     ) {
-      stats.transcriptsSkipped++;
-      continue;
-    }
-    if (options.countedOnly && startSeq < 0) {
       stats.transcriptsSkipped++;
       continue;
     }
@@ -96,6 +148,7 @@ export function scanTranscripts(
     const channel = channelFor(events, ref.meta);
     let lastSeq = startSeq;
     let lastTimestamp = prior?.lastTimestamp ?? 0;
+    let reachedEnd = true;
 
     for (const event of events) {
       if (event.seq <= firstSeq) continue;
@@ -103,7 +156,10 @@ export function scanTranscripts(
 
       const parsed = parseUsageLine(event.json);
       if (parsed) {
-        if (parsed.tsMs >= options.toMs) break;
+        if (parsed.tsMs >= options.toMs) {
+          reachedEnd = false;
+          break;
+        }
         if (parsed.tsMs >= options.fromMs) {
           const modelKey = [parsed.provider, parsed.model].join('/');
           seenModels.add(modelKey);
@@ -121,8 +177,16 @@ export function scanTranscripts(
       lastSeq = Math.max(lastSeq, event.seq);
     }
 
-    if (!options.countedOnly && lastSeq > startSeq)
-      cursors[ref.cursorKey] = { lastSeq, lastTimestamp };
+    const next: Cursor = { lastSeq, lastTimestamp };
+    if (ref.generation !== undefined) next.generation = ref.generation;
+    if (ref.immutable && reachedEnd) next.complete = true;
+    const own = cursors[ref.cursorKey] as Cursor | undefined;
+    if (
+      !options.countedOnly &&
+      (lastSeq > startSeq || inherited || next.complete) &&
+      !sameCursor(own, next)
+    )
+      cursors[ref.cursorKey] = next;
     stats.transcriptsProcessed++;
   }
 

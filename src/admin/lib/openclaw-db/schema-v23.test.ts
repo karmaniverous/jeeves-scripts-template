@@ -59,7 +59,7 @@ describe('schema v23 reader', () => {
     const all = loadAll(fx.dbPath);
     expect(all.map((t) => t.key)).toEqual([
       'session:cold',
-      'session:gone',
+      'session:gone#g1',
       'session:hot',
     ]);
     const hot = all[2];
@@ -71,6 +71,41 @@ describe('schema v23 reader', () => {
     expect(all[1].maxSeq).toBeUndefined();
     expect(all[1].events.map((e) => e.seq)).toEqual([0, 1]);
     expect(all[1].events[1].json).toContain('deleted one');
+  });
+
+  it('keeps archive generations separate, each starting at seq 0', () => {
+    const fx = createV23Fixture(root);
+    fx.addArchive('s', [header('s'), msg('a', 'first gen')], 'reset', 'g1');
+    fx.addArchive('s', [header('s'), msg('b', 'second gen')], 'reset', 'g2');
+    fx.addHotSession('s2', [header('s2')], [], { generation: 'live-gen' });
+    fx.close();
+
+    const all = loadAll(fx.dbPath);
+    expect(all.map((t) => t.key)).toEqual([
+      'session:s#g1',
+      'session:s#g2',
+      'session:s2',
+    ]);
+    const [g1, g2] = all;
+    expect(g1.events.map((e) => e.seq)).toEqual([0, 1]);
+    expect(g2.events.map((e) => e.seq)).toEqual([0, 1]);
+    expect(g1.events[1].json).toContain('first gen');
+    expect(g2.events[1].json).toContain('second gen');
+
+    const agentDb = openAgentDb(fx.dbPath);
+    try {
+      const refs = agentDb.schema.listTranscripts(agentDb.db, agentDb.ctx);
+      const byKey = new Map(refs.map((r) => [r.cursorKey, r]));
+      expect(byKey.get('session:s#g1')).toMatchObject({
+        generation: 'g1',
+        immutable: true,
+        seed: { key: 'session:s', acceptUnstamped: false },
+      });
+      expect(byKey.get('session:s#g2')?.seed?.acceptUnstamped).toBe(true);
+      expect(byKey.get('session:s2')?.generation).toBe('live-gen');
+    } finally {
+      agentDb.close();
+    }
   });
 
   it('rejects a tampered cold archive file', () => {

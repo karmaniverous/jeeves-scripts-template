@@ -31,6 +31,7 @@ export function listLegacyArchives(sessionsDir: string): TranscriptRef[] {
     .map((name) => ({
       cursorKey: `legacy:${name}`,
       maxSeq: undefined,
+      immutable: true,
       load: () =>
         fs
           .readFileSync(path.join(sessionsDir, name), 'utf8')

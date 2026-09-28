@@ -62,6 +62,13 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | `lib/openclaw-db/channel-from-meta.ts` | 2026.9+ channel keys from recorded session metadata; text rules only as fallback; sanitized |
 | `lib/openclaw-db/schema-v23-meta.ts` | Loads schema-23 session keys and channel/peer/label names (read-only) |
 | `lib/regen-guard.ts` | Refuses regenerate `--from` before `OPENCLAW_UPGRADE_CUTOFF` without `--allow-pre-upgrade` |
+| `lib/regen-run.ts` | regenerate-token-metrics orchestration: scratch / live / bounded (`--to`, counted-only, cursors untouched), backup → delete → flush → cursor replace |
+| `lib/collect-run.ts` | collect-token-metrics orchestration; loads the agent-DB collector (node:sqlite) lazily |
+| `lib/token-metrics-state.ts` | Runner-state port for the token-metrics namespace |
+| `lib/bucket-maintenance.ts` | Bucket backup (`.backup-<ts>.json`, never overwritten) and deletion for rebuilds |
+| `lib/claude-code-session-scan.ts` | Claude Code usage scan with byte cursors; `countedOnly` for bounded rebuilds |
+| `lib/dm-names.ts` / `lib/dm-name-sources.ts` | Name `slack:dm:<USERID>` channels via cache → Slack user map → gateway `member-info` |
+| `lib/openclaw-db/schema-v23-payloads.ts` | Schema-23 payload decoding and integrity checks (hot rows, cold and deleted/reset archives) |
 | `lib/claude-code-scanner.ts` | Scans Claude Code session JSONL files for Anthropic usage records |
 | `lib/also-allow-policy.ts` | Pure detection (upstream-fixed / legacy) and legacy patch for `hasRestrictiveAllowPolicy` |
 | `lib/dist-patch-io.ts` | Finds dist chunks by content (.js/.mjs), previews or atomically applies a patch plan, `--dry-run` flag |

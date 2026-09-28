@@ -42,6 +42,8 @@ export interface FixtureNode {
   entry?: Record<string, unknown>;
   /** `session_nodes.label`. */
   label?: string;
+  /** Live transcript generation (`transcript_rewrite_watermarks`). */
+  generation?: string;
 }
 
 /** Handle to a fixture DB under `<root>/agent/openclaw-agent.sqlite`. */
@@ -65,6 +67,7 @@ export interface V23Fixture {
     id: string,
     events: string[],
     reason?: 'deleted' | 'reset',
+    generation?: string,
   ) => void;
   close: () => void;
 }
@@ -89,6 +92,10 @@ export function createV23Fixture(root: string, userVersion = 23): V23Fixture {
     db.prepare(
       'INSERT INTO session_windows (session_id, session_key, created_at, updated_at) VALUES (?, ?, ?, ?)',
     ).run(id, key, now, now);
+    if (node.generation)
+      db.prepare(
+        'INSERT INTO transcript_rewrite_watermarks (session_id, generation, updated_at) VALUES (?, ?, ?)',
+      ).run(id, node.generation, now);
   };
 
   return {
@@ -156,17 +163,18 @@ export function createV23Fixture(root: string, userVersion = 23): V23Fixture {
         now,
       );
     },
-    addArchive: (id, events, reason = 'deleted') => {
+    addArchive: (id, events, reason = 'deleted', generation = 'g1') => {
       const bytes = zstd(Buffer.from(events.join('\n') + '\n'));
       db.prepare(
-        "INSERT INTO session_transcript_archives (session_id, generation, session_key, reason, encoding, archive_blob, archive_sha256, archive_name, created_at) VALUES (?, 'g1', ?, ?, 'zstd', ?, ?, ?, ?)",
+        "INSERT INTO session_transcript_archives (session_id, generation, session_key, reason, encoding, archive_blob, archive_sha256, archive_name, created_at) VALUES (?, ?, ?, ?, 'zstd', ?, ?, ?, ?)",
       ).run(
         id,
+        generation,
         `agent:main:test:${id}`,
         reason,
         bytes,
         sha256(bytes),
-        `${id}.jsonl.${reason}.zst`,
+        `${id}.jsonl.${reason}.${generation}.zst`,
         now,
       );
     },

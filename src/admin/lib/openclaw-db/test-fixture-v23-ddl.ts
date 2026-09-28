@@ -142,6 +142,12 @@ CREATE TABLE session_transcript_archives (
   PRIMARY KEY (session_id, generation),
   CHECK (archive_name NOT LIKE '%/%' AND archive_name NOT LIKE '%\\%')
 ) STRICT;
+CREATE TABLE transcript_rewrite_watermarks (
+  session_id TEXT NOT NULL PRIMARY KEY,
+  generation TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES "session_windows"(session_id) ON DELETE CASCADE
+) STRICT;
 CREATE TABLE session_transcript_cold_archives (
   session_id TEXT NOT NULL PRIMARY KEY,
   generation TEXT NOT NULL,

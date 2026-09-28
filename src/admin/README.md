@@ -59,6 +59,9 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | --- | --- |
 | `lib/bucket-io.ts` | Hourly bucket file I/O — read, write, merge, flush |
 | `lib/channel-mapper.ts` | Maps session transcripts to channel keys (Slack, DM, heartbeat, subagent, meta-synthesis) from transcript text |
+| `lib/channel-names.ts` | `ChannelResult`, Slack channel-name registry, Slack channel extraction, `slugify` |
+| `lib/subagent-label.ts` | Meta-synthesis phase and granular subagent label detection |
+| `lib/transcript-text.ts` | Extracts text chunks from session JSONL lines |
 | `lib/openclaw-db/channel-from-meta.ts` | 2026.9+ channel keys from recorded session metadata; text rules only as fallback; sanitized |
 | `lib/openclaw-db/schema-v23-meta.ts` | Loads schema-23 session keys and channel/peer/label names (read-only) |
 | `lib/regen-guard.ts` | Refuses regenerate `--from` before `OPENCLAW_UPGRADE_CUTOFF` without `--allow-pre-upgrade` |

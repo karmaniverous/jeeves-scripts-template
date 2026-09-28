@@ -31,11 +31,7 @@ import {
 // ── Config ─────────────────────────────────────────────────────────────
 
 /** Patch scripts to run, in order. */
-const PATCHES = [
-  'patch-tool-order.ts',
-  'patch-also-allow-policy.ts',
-  'patch-subagent-message-tool.ts',
-];
+const PATCHES = ['patch-tool-order.ts', 'patch-also-allow-policy.ts'];
 
 // ── Core logic ─────────────────────────────────────────────────────────
 

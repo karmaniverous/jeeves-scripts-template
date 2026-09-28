@@ -3,9 +3,12 @@ import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  checkHealthz,
   type CollectionInfo,
+  describeExecError,
   fetchJson,
   isCollectionHealthy,
+  isPermissionDenied,
   runHealthCheck,
 } from './qdrant-health-check.js';
 
@@ -54,8 +57,35 @@ function errorResponse(
   } as unknown as Response;
 }
 
+/**
+ * Build a /healthz Response stub. Real Qdrant returns text/plain
+ * ("healthz check passed"); json() rejects exactly as a real Response
+ * would, so any attempt to JSON-parse the body fails the test.
+ */
+function healthzResponse(ok = true, status = 200): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : 'Service Unavailable',
+    text: () => Promise.resolve('healthz check passed'),
+    json: () =>
+      Promise.reject(
+        new SyntaxError(
+          'Unexpected token \'h\', "healthz check passed" is not valid JSON',
+        ),
+      ),
+  } as unknown as Response;
+}
+
 /** /healthz response. */
-const HEALTHZ_OK = okResponse({ title: 'qdrant', version: '1.12.0' });
+const HEALTHZ_OK = healthzResponse();
+
+/** Build an execSync failure shaped like Node's (message + stderr). */
+function execFailure(command: string, stderr: string): Error {
+  return Object.assign(new Error(`Command failed: ${command}`), {
+    stderr: Buffer.from(stderr),
+  });
+}
 
 /** /collections response with one collection named "vectors". */
 function collectionsResponse(names: string[]): Response {
@@ -130,6 +160,65 @@ describe('fetchJson', () => {
     await expect(fetchJson(TEST_URL)).rejects.toThrow(
       'Qdrant API error: 503 Service Unavailable',
     );
+  });
+});
+
+// ── checkHealthz ──────────────────────────────────────────────────────────────
+
+describe('checkHealthz', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('passes on a 2xx text/plain body without parsing JSON', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(healthzResponse());
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(checkHealthz(TEST_URL)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(`${TEST_URL}/healthz`);
+  });
+
+  it('throws on a non-2xx status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(healthzResponse(false, 503)),
+    );
+    await expect(checkHealthz(TEST_URL)).rejects.toThrow(
+      'Qdrant /healthz returned 503',
+    );
+  });
+
+  it('throws when Qdrant is unreachable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+    );
+    await expect(checkHealthz(TEST_URL)).rejects.toThrow('ECONNREFUSED');
+  });
+});
+
+// ── restart error classification ──────────────────────────────────────────────
+
+describe('describeExecError / isPermissionDenied', () => {
+  it('appends captured stderr to the exec error message', () => {
+    const err = execFailure(
+      'systemctl --no-ask-password restart qdrant',
+      'Failed to restart qdrant.service: Interactive authentication required.\n',
+    );
+    expect(describeExecError(err)).toBe(
+      'Command failed: systemctl --no-ask-password restart qdrant: Failed to restart qdrant.service: Interactive authentication required.',
+    );
+  });
+
+  it.each([
+    'Failed to restart qdrant.service: Interactive authentication required.',
+    'Failed to restart qdrant.service: Access denied',
+    "Restart-Service : Cannot open qdrant service on computer '.'.",
+  ])('classifies %j as permission denied', (msg) => {
+    expect(isPermissionDenied(msg)).toBe(true);
+  });
+
+  it('does not classify other failures as permission denied', () => {
+    expect(isPermissionDenied('Unit qdrant.service not found.')).toBe(false);
   });
 });
 
@@ -214,7 +303,7 @@ describe('runHealthCheck', () => {
   it('restarts immediately when /healthz returns a non-ok status', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValueOnce(errorResponse(503, 'Service Unavailable')),
+      vi.fn().mockResolvedValueOnce(healthzResponse(false, 503)),
     );
 
     await runHealthCheck(TEST_URL);
@@ -235,9 +324,73 @@ describe('runHealthCheck', () => {
     expect(execSync).toHaveBeenCalled();
   });
 
+  it('passes a healthy text/plain /healthz without restarting or erroring', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(HEALTHZ_OK)
+        .mockResolvedValueOnce(collectionsResponse([])),
+    );
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    await runHealthCheck(TEST_URL);
+
+    expect(execSync).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(savedExitCode);
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('restarts non-interactively on Linux', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')),
+      );
+
+      await runHealthCheck(TEST_URL);
+
+      expect(execSync).toHaveBeenCalledWith(
+        'systemctl --no-ask-password restart qdrant',
+        expect.objectContaining({ timeout: 30_000 }),
+      );
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
+  });
+
+  it('reports "restart requires operator" and exits non-zero when the restart is denied', async () => {
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw execFailure(
+        'systemctl --no-ask-password restart qdrant',
+        'Failed to restart qdrant.service: Interactive authentication required.',
+      );
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValueOnce(new Error('ECONNREFUSED')),
+    );
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    await expect(runHealthCheck(TEST_URL)).resolves.toBeUndefined();
+
+    expect(process.exitCode).toBe(1);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('qdrant down; restart requires operator'),
+    );
+    consoleErrorSpy.mockRestore();
+  });
+
   it('logs error and sets exitCode=1 when restart fails, without throwing', async () => {
     vi.mocked(execSync).mockImplementationOnce(() => {
-      throw new Error('Permission denied');
+      throw new Error('Unit qdrant.service not found.');
     });
 
     vi.stubGlobal(

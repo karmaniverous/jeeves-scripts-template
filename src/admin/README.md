@@ -14,7 +14,6 @@ Token metrics collection, session cost management, and OpenClaw post-install pat
 | `patch-openclaw.ts` | Orchestrator that runs every OpenClaw post-install patch (one failure never skips the rest), prints a per-patch summary, exits non-zero on any failure. Forwards `--dry-run` |
 | `patch-tool-order.ts` | Patches OpenClaw's toolOrder array (located by content in any chunk) to insert Jeeves component tools above grep |
 | `patch-also-allow-policy.ts` | Ensures `tools.alsoAllow` is not treated as a restrictive allowlist. No-op on OpenClaw ≥ 2026.9.x (fixed upstream); legacy patch for older builds |
-| `patch-subagent-message-tool.ts` | Re-enables the `message` tool for `sessions_spawn` sub-agents: flips `disableMessageTool` in the launch request and removes `"message"` from `SUBAGENT_TOOL_DENY_ALWAYS` |
 
 All `patch-*.ts` scripts locate their target chunk by content across `.js` and `.mjs` files, are idempotent, refuse zero/multiple matches, write atomically, and accept `--dry-run` (print file, line, before/after; write nothing). Restart the gateway after a live run.
 
@@ -32,7 +31,6 @@ flowchart LR
 
   patch["patch-openclaw"] --> order["patch-tool-order\n(post npm install -g openclaw)"]
   patch --> allow["patch-also-allow-policy\n(fix alsoAllow tool inheritance)"]
-  patch --> msg["patch-subagent-message-tool\n(message tool for sub-agents)"]
 ```
 
 - **collect-token-metrics** incrementally scans JSONL transcripts (OpenClaw + Claude Code), rolls usage into per-hour bucket files partitioned by channel and model.
@@ -75,7 +73,6 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | `lib/openclaw-dist-fixtures.ts` | Verbatim OpenClaw v2026.9.6 dist snippets used as patch test fixtures |
 | `lib/patch-runner.ts` | Runs patch scripts independently and formats the per-patch summary |
 | `lib/patch-tool-order-utils.ts` | Pure helpers for toolOrder parsing/formatting and the per-chunk toolOrder patch evaluation |
-| `lib/subagent-message-patches.ts` | Pure patch definitions for the sub-agent spawn flag and deny list |
 | `lib/text-patch.ts` | Pure anchored/idempotent text-patch primitives and cross-file plan reduction |
 | `lib/rate-card.ts` | Token rate card loader and cost calculator ($/MTok) |
 | `lib/rate-card-schema.ts` | Zod schema and validating file reader for the rate card |

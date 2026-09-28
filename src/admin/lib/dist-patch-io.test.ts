@@ -10,27 +10,35 @@ import {
   isDryRun,
   listDistChunks,
 } from './dist-patch-io.js';
-import {
-  AGENT_TOOLS_POLICY,
-  SPAWN_LAUNCH_REQUEST,
-} from './openclaw-dist-fixtures.js';
-import { patchSpawnFlag } from './subagent-message-patches.js';
-import { planAcrossFiles } from './text-patch.js';
+import { evaluateAnchoredPatch, planAcrossFiles } from './text-patch.js';
+
+/** Content marker used to locate the target chunk. */
+const MARKER = 'SAMPLE_PATCH_SITE';
+
+/** Synthetic dist chunk carrying the patch site. */
+const TARGET = [
+  '//#region src/sample.ts',
+  `const ${MARKER} = { enabled: true };`,
+  'export { SAMPLE_PATCH_SITE };',
+].join('\n');
+
+/** Sample anchored patch: flip `enabled: true` to `false` at the marker. */
+const samplePatch = (content: string) =>
+  evaluateAnchoredPatch(
+    content,
+    /SAMPLE_PATCH_SITE = \{ enabled: true \}/g,
+    /SAMPLE_PATCH_SITE = \{ enabled: false \}/g,
+    (m) => m.replace('true', 'false'),
+  );
 
 let dir: string;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dist-patch-io-'));
-  fs.writeFileSync(
-    path.join(dir, 'sessions-spawn-tool-AB.mjs'),
-    SPAWN_LAUNCH_REQUEST,
-  );
-  fs.writeFileSync(
-    path.join(dir, 'agent-tools.policy-CD.mjs'),
-    AGENT_TOOLS_POLICY,
-  );
+  fs.writeFileSync(path.join(dir, 'sample-tool-AB.mjs'), TARGET);
+  fs.writeFileSync(path.join(dir, 'agent-tools.policy-CD.mjs'), 'const b = 2;');
   fs.writeFileSync(path.join(dir, 'legacy-EF.js'), 'const a = 1;');
-  fs.writeFileSync(path.join(dir, 'types.d.ts'), 'AGENT_LANE_SUBAGENT');
+  fs.writeFileSync(path.join(dir, 'types.d.ts'), MARKER);
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -42,9 +50,9 @@ afterEach(() => {
 
 const plan = () =>
   planAcrossFiles(
-    findChunks(dir, 'AGENT_LANE_SUBAGENT').map((c) => ({
+    findChunks(dir, MARKER).map((c) => ({
       file: c.file,
-      result: patchSpawnFlag(c.content),
+      result: samplePatch(c.content),
     })),
   );
 
@@ -60,33 +68,33 @@ describe('listDistChunks / findChunks', () => {
     expect(listDistChunks(dir)).toEqual([
       'agent-tools.policy-CD.mjs',
       'legacy-EF.js',
-      'sessions-spawn-tool-AB.mjs',
+      'sample-tool-AB.mjs',
     ]);
   });
 
   it('finds chunks by content marker', () => {
-    expect(findChunks(dir, 'AGENT_LANE_SUBAGENT').map((c) => c.file)).toEqual([
-      'sessions-spawn-tool-AB.mjs',
+    expect(findChunks(dir, MARKER).map((c) => c.file)).toEqual([
+      'sample-tool-AB.mjs',
     ]);
   });
 });
 
 describe('applyDistPlan', () => {
-  const target = () => path.join(dir, 'sessions-spawn-tool-AB.mjs');
+  const target = () => path.join(dir, 'sample-tool-AB.mjs');
 
   it('dry run previews without writing', () => {
-    expect(applyDistPlan('t', 'spawn', dir, plan(), true)).toBe(true);
-    expect(fs.readFileSync(target(), 'utf8')).toBe(SPAWN_LAUNCH_REQUEST);
+    expect(applyDistPlan('t', 'sample', dir, plan(), true)).toBe(true);
+    expect(fs.readFileSync(target(), 'utf8')).toBe(TARGET);
   });
 
   it('live run writes, then reports already patched', () => {
-    expect(applyDistPlan('t', 'spawn', dir, plan(), false)).toBe(true);
+    expect(applyDistPlan('t', 'sample', dir, plan(), false)).toBe(true);
     expect(fs.readFileSync(target(), 'utf8')).toContain(
-      'disableMessageTool: false',
+      'SAMPLE_PATCH_SITE = { enabled: false }',
     );
     const second = plan();
     expect(second.status).toBe('already-patched');
-    expect(applyDistPlan('t', 'spawn', dir, second, false)).toBe(true);
+    expect(applyDistPlan('t', 'sample', dir, second, false)).toBe(true);
   });
 
   it('returns false on error plans', () => {

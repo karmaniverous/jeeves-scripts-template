@@ -53,6 +53,8 @@ describe('parseRateCard', () => {
       /models\.m\.input/,
     ],
     ['not an object', 'nope', /Invalid token rate card/],
+    ['unsupported unit', { ...VALID, unit: '$/token' }, /unit/],
+    ['empty unit', { ...VALID, unit: '' }, /unit/],
   ])('rejects %s', (_name, raw, pattern) => {
     expect(() => parseRateCard(raw, 'card.json')).toThrow(pattern);
   });

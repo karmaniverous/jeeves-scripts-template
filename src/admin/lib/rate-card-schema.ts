@@ -22,8 +22,9 @@ export const modelRatesSchema = z.object({
 export const rateCardSchema = z.object({
   updatedAt: z.string().min(1),
   source: z.string().optional(),
-  // Older cards may omit the unit; rates are always $/MTok.
-  unit: z.string().min(1).default('$/MTok'),
+  // Cost math assumes $/MTok, so no other unit is accepted. Older cards
+  // may omit the unit; they default to $/MTok.
+  unit: z.literal('$/MTok').default('$/MTok'),
   models: z
     .record(z.string().min(1), modelRatesSchema)
     .refine((models) => Object.keys(models).length > 0, {
@@ -64,6 +65,21 @@ export function parseRateCard(raw: unknown, label: string): RateCardConfig {
  * @throws Error if the file is missing, unreadable, not JSON, or invalid.
  */
 export function readRateCardFile(filePath: string): RateCardConfig {
+  return readRateCardText(filePath).card;
+}
+
+/**
+ * Read a rate card file and return both its exact text and the validated
+ * card, so callers can copy the very bytes that were validated.
+ *
+ * @param filePath - Absolute path to the rate card JSON file.
+ * @returns The raw file text and the validated rate card.
+ * @throws Error if the file is missing, unreadable, not JSON, or invalid.
+ */
+export function readRateCardText(filePath: string): {
+  text: string;
+  card: RateCardConfig;
+} {
   let text: string;
   try {
     text = fs.readFileSync(filePath, 'utf8');
@@ -87,5 +103,5 @@ export function readRateCardFile(filePath: string): RateCardConfig {
     );
   }
 
-  return parseRateCard(raw, filePath);
+  return { text, card: parseRateCard(raw, filePath) };
 }

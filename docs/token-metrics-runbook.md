@@ -123,15 +123,23 @@ The rate card lives at `/opt/jeeves/state/jeeves-runner/token-metrics/token-rate
 
 ### Seed on fresh instances
 
-The template ships a seed card at `config/token-rates.seed.json` (default instance models plus delivery-mirror at 0, `source` starts with `SEED <date>`). `refresh-token-rates` and `collect-token-metrics` copy it into place (creating the directory) **only when no rate card exists**. An existing card is never overwritten, even if it is invalid.
+The template ships a seed card at `config/token-rates.seed.json` (default instance models plus delivery-mirror at 0, `source` starts with `SEED <date>`). `refresh-token-rates` and `collect-token-metrics` copy it into place (creating the directory) **only when no rate card exists**. An existing card is never overwritten, even if it is invalid. Seeding is atomic: the validated seed is written to a temp file in the same directory and hard-linked into place, so readers never see a partial card and a concurrently created card is never clobbered.
 
 ### Failure reporting
 
 `refresh-token-rates` validates the card before dispatching the worker and again after the worker finishes. It exits non-zero (the runner records an error) if the card is missing and can't be seeded, is unreadable or invalid (bad JSON, missing rate category, no models), or if the worker exits non-zero.
 
+The worker's exit code alone is not trusted. Its final reply must end with one result line, which the job reads back through the gateway (`sessions_history`):
+
+- `RESULT: updated` — the card must also have a later `updatedAt` than before the run;
+- `RESULT: unchanged` — every rate verified, no change needed;
+- `RESULT: failed: <reason>` — recorded as a failed run with the reason.
+
+A missing or malformed result line fails the run. `refresh-token-rates --dry-run` prints the TASK and exits without seeding, reading the card, or dispatching a worker.
+
 ### Automatic (recommended)
 
-The `refresh-token-rates.ts` job runs every 59 minutes and dispatches an LLM session to fetch current published API pricing. New models are added automatically when they appear in provider pricing pages.
+The `refresh-token-rates.ts` job runs daily at 05:37 UTC (off-peak; `timeout_seconds` 600) and dispatches one paid LLM session to fetch current published API pricing. New models are added automatically when they appear in provider pricing pages.
 
 If the collector encounters an unknown model, it:
 

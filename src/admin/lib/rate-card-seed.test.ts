@@ -61,6 +61,46 @@ describe('ensureRateCard', () => {
     expect(fs.readFileSync(ratesPath, 'utf8')).toBe('not json');
   });
 
+  it('leaves no temp files behind after seeding', () => {
+    ensureRateCard(ratesPath, seedPath);
+    expect(fs.readdirSync(path.dirname(ratesPath))).toEqual([
+      'token-rates.json',
+    ]);
+  });
+
+  it('copies the exact seed bytes', () => {
+    const text = JSON.stringify(SEED, null, 2) + '\n';
+    fs.writeFileSync(seedPath, text);
+    ensureRateCard(ratesPath, seedPath);
+    expect(fs.readFileSync(ratesPath, 'utf8')).toBe(text);
+  });
+
+  it('does not clobber a card created concurrently before the claim', () => {
+    const live = JSON.stringify({ ...SEED, source: 'concurrent writer' });
+    const realLink = fs.linkSync.bind(fs);
+    vi.spyOn(fs, 'linkSync').mockImplementationOnce((src, dest) => {
+      // Another process wins the race between existsSync and link.
+      fs.writeFileSync(dest, live);
+      realLink(src, dest);
+    });
+
+    expect(ensureRateCard(ratesPath, seedPath)).toEqual({ seeded: false });
+    expect(fs.readFileSync(ratesPath, 'utf8')).toBe(live);
+    expect(fs.readdirSync(path.dirname(ratesPath))).toEqual([
+      'token-rates.json',
+    ]);
+  });
+
+  it('leaves no live card when the claim fails for another reason', () => {
+    vi.spyOn(fs, 'linkSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error('EIO: i/o error, link'), { code: 'EIO' });
+    });
+
+    expect(() => ensureRateCard(ratesPath, seedPath)).toThrow(/EIO/);
+    expect(fs.existsSync(ratesPath)).toBe(false);
+    expect(fs.readdirSync(path.dirname(ratesPath))).toEqual([]);
+  });
+
   it('is idempotent', () => {
     ensureRateCard(ratesPath, seedPath);
     expect(ensureRateCard(ratesPath, seedPath)).toEqual({ seeded: false });

@@ -16,15 +16,26 @@ describe('normalizeSlackTarget', () => {
     expect(normalizeSlackTarget(raw)).toBe(target);
   });
 
-  it.each(['#ops-ceo', 'ops-ceo', '', 'C1', 'email:x@y.z'])(
-    'rejects %j',
-    (raw) => {
-      expect(normalizeSlackTarget(raw)).toBeNull();
-    },
-  );
+  it.each([
+    '#ops-ceo',
+    'ops-ceo',
+    '',
+    'C1',
+    'email:x@y.z',
+    'channel:U09JC3DPCS1',
+    'channel:W0ABCDEF12',
+    'user:C0B2Z734KSP',
+    'user:D0AMFV5SGN8',
+    'channel:C1',
+  ])('rejects %j', (raw) => {
+    expect(normalizeSlackTarget(raw)).toBeNull();
+  });
 
-  it('requireSlackTarget throws on names', () => {
+  it('requireSlackTarget throws on names and prefix/ID-family mismatches', () => {
     expect(() => requireSlackTarget('#ops-ceo')).toThrow(
+      /Invalid Slack target/,
+    );
+    expect(() => requireSlackTarget('user:C0B2Z734KSP')).toThrow(
       /Invalid Slack target/,
     );
   });

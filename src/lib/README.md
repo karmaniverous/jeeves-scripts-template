@@ -97,10 +97,10 @@ Recovers an LLM worker's final reply after `dispatchSession`: it takes the sessi
 Job-side Slack I/O for LLM workers. On OpenClaw 2026.9, sub-agent sessions have no `message` tool, so the job script does all Slack work:
 
 - `run.ts`: `dispatchWithSlack(task, dispatchOptions, { reads, posts })` is the production entry point. It supports `--dry-run` (print the posts instead of posting) and `--print-task` (print the TASK, no dispatch).
-- `worker-slack-job.ts`: orchestration with injected deps (read → TASK → dispatch → validate → post/pin).
-- `worker-posts.ts`: the `slack-posts` output contract (fenced JSON array of `{channel, thread_ts?, text, pin?}`), the worker instructions, and the Slack context formatting.
-- `slack-io.ts`: `read` / `send` / `pin` through the gateway `message` tool (`/tools/invoke`).
-- `slack-target.ts`: normalizes Slack IDs to `channel:…` / `user:…` targets.
+- `worker-slack-job.ts`: orchestration with injected deps (read → TASK → dispatch → validate → post/pin/edit).
+- `worker-posts.ts`: the `slack-posts` output contract (a fenced JSON array, never a bare object, of `{channel, text, thread_ts?, pin?, edit_ts?}`; `edit_ts` replaces the text of an existing message and can't be combined with `thread_ts`/`pin`), the worker instructions, and the Slack context formatting (fenced as untrusted data the worker must never follow as instructions).
+- `slack-io.ts`: `read` / `send` / `pin` / `edit` through the gateway `message` tool (`/tools/invoke`).
+- `slack-target.ts`: normalizes Slack IDs to `channel:…` / `user:…` targets (the prefix must match the ID family: `channel:` C/G/D, `user:` U/W).
 
 ### spawn-worker.ts
 

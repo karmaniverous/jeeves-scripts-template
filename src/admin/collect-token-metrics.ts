@@ -2,39 +2,51 @@
 /**
  * @module collect-token-metrics
  *
- * Token metrics collector — scans OpenClaw session transcripts
- * and Claude Code session logs, then writes immutable hourly
- * rollup buckets to disk.
+ * Token metrics collector — scans OpenClaw usage and Claude Code
+ * session logs, then writes immutable hourly rollup buckets to disk.
  *
  * Data sources:
- * - OpenClaw gateway transcripts (SESSIONS_DIR)
+ * - OpenClaw 2026.9+ agent SQLite store (OPENCLAW_AGENT_DB_PATH, read-only,
+ *   schema-pinned; exits non-zero on an unknown schema) when it exists,
+ *   otherwise legacy gateway transcripts (SESSIONS_DIR)
  * - Claude Code project sessions (CLAUDE_CODE_PROJECTS_DIR)
  *
  * Designed as a runner cron job. Only processes data up to the
  * previous closed UTC hour boundary so each bucket file is
  * write-once and immutable.
  *
- * Config dependencies: SESSIONS_DIR, CLAUDE_CODE_PROJECTS_DIR,
- * TOKEN_METRICS_DIR, TOKEN_METRICS_NAMESPACE, TOKEN_METRICS_CURSOR_KEY,
+ * Config dependencies: OPENCLAW_AGENT_DB_PATH, SESSIONS_DIR,
+ * CLAUDE_CODE_PROJECTS_DIR, TOKEN_METRICS_DIR, TOKEN_METRICS_NAMESPACE,
+ * TOKEN_METRICS_CURSOR_KEY, TOKEN_METRICS_DB_CURSOR_KEY,
  * TOKEN_METRICS_CC_CURSOR_KEY, TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH
  * from constants.ts.
  */
+
+import fs from 'node:fs';
 
 import { runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
 import {
+  OPENCLAW_AGENT_DB_PATH,
+  SESSIONS_DIR,
   TOKEN_METRICS_CC_CURSOR_KEY,
   TOKEN_METRICS_CURSOR_KEY,
+  TOKEN_METRICS_DB_CURSOR_KEY,
   TOKEN_METRICS_NAMESPACE,
   TOKEN_RATES_PATH,
   TOKEN_RATES_SEED_PATH,
 } from '../lib/constants.js';
 import { currentHourBoundaryMs, flushBuckets } from './lib/bucket-io.js';
+import { collectOpenClawDb } from './lib/openclaw-db/collect-openclaw.js';
+import type { DbCursorState } from './lib/openclaw-db/db-cursor.js';
 import { loadRateCard } from './lib/rate-card.js';
 import { ensureRateCard } from './lib/rate-card-seed.js';
-import { scanAllSessions } from './lib/session-scanner.js';
-import type { CursorState } from './types/token-metrics.js';
+import {
+  scanAllSessions,
+  scanClaudeCodeSessions,
+} from './lib/session-scanner.js';
+import type { CursorState, HourlyBucket } from './types/token-metrics.js';
 
 /**
  * Trigger the rate card refresh job via the runner HTTP API.
@@ -85,15 +97,40 @@ function collect(): void {
     const cutoffIso = new Date(cutoffMs).toISOString();
     console.log(`[token-metrics] Processing files, cutoff: ${cutoffIso}`);
 
-    // Scan all sessions (fromMs=0 means no lower bound)
-    const {
-      buckets,
-      seenModels,
-      ocProcessed,
-      ocSkipped,
-      ccProcessed,
-      ccSkipped,
-    } = scanAllSessions(0, cutoffMs, cursors, ccCursors);
+    // Scan (fromMs=0 means no lower bound). On 2026.9+ hosts OpenClaw usage
+    // comes from the agent DB; the legacy transcript files are not rescanned.
+    let buckets = new Map<string, HourlyBucket>();
+    let seenModels = new Set<string>();
+    let ocProcessed = 0;
+    let ocSkipped = 0;
+    let ccProcessed: number;
+    let ccSkipped: number;
+    let dbCursors: DbCursorState | null = null;
+    const useDb = fs.existsSync(OPENCLAW_AGENT_DB_PATH);
+
+    if (useDb) {
+      dbCursors = collectOpenClawDb({
+        dbPath: OPENCLAW_AGENT_DB_PATH,
+        sessionsDir: SESSIONS_DIR,
+        rawCursor: client.getState(
+          TOKEN_METRICS_NAMESPACE,
+          TOKEN_METRICS_DB_CURSOR_KEY,
+        ),
+        cutoffMs,
+        buckets,
+        seenModels,
+      });
+      ({ ccProcessed, ccSkipped } = scanClaudeCodeSessions(
+        0,
+        cutoffMs,
+        ccCursors,
+        buckets,
+        seenModels,
+      ));
+    } else {
+      ({ buckets, seenModels, ocProcessed, ocSkipped, ccProcessed, ccSkipped } =
+        scanAllSessions(0, cutoffMs, cursors, ccCursors));
+    }
 
     console.log(
       `[token-metrics] Claude Code: ${String(ccProcessed)} files processed, ${String(ccSkipped)} skipped`,
@@ -118,12 +155,21 @@ function collect(): void {
     // Flush buckets to disk
     const written = flushBuckets(buckets);
 
-    // Save cursor state — both OC and CC
-    client.setState(
-      TOKEN_METRICS_NAMESPACE,
-      TOKEN_METRICS_CURSOR_KEY,
-      JSON.stringify(cursors),
-    );
+    // Save cursor state — OC (DB or legacy files) and CC
+    if (dbCursors) {
+      client.setState(
+        TOKEN_METRICS_NAMESPACE,
+        TOKEN_METRICS_DB_CURSOR_KEY,
+        JSON.stringify(dbCursors),
+      );
+    }
+    if (!useDb) {
+      client.setState(
+        TOKEN_METRICS_NAMESPACE,
+        TOKEN_METRICS_CURSOR_KEY,
+        JSON.stringify(cursors),
+      );
+    }
     client.setState(
       TOKEN_METRICS_NAMESPACE,
       TOKEN_METRICS_CC_CURSOR_KEY,

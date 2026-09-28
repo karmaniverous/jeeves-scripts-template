@@ -184,6 +184,35 @@ export function scanAllSessions(
   }
 
   // ── Claude Code sessions ──
+  const { ccProcessed, ccSkipped } = scanClaudeCodeSessions(
+    fromMs,
+    cutoffMs,
+    ccCursors,
+    buckets,
+    seenModels,
+  );
+
+  return {
+    buckets,
+    seenModels,
+    ocProcessed,
+    ocSkipped,
+    ccProcessed,
+    ccSkipped,
+  };
+}
+
+/**
+ * Scan Claude Code session files, extracting usage records within
+ * [fromMs, cutoffMs) into `buckets` and advancing `ccCursors` in place.
+ */
+export function scanClaudeCodeSessions(
+  fromMs: number,
+  cutoffMs: number,
+  ccCursors: CursorState,
+  buckets: Map<string, HourlyBucket>,
+  seenModels: Set<string>,
+): { ccProcessed: number; ccSkipped: number } {
   const ccFiles = listCCSessionFiles();
   let ccProcessed = 0;
   let ccSkipped = 0;
@@ -249,12 +278,5 @@ export function scanAllSessions(
     ccProcessed++;
   }
 
-  return {
-    buckets,
-    seenModels,
-    ocProcessed,
-    ocSkipped,
-    ccProcessed,
-    ccSkipped,
-  };
+  return { ccProcessed, ccSkipped };
 }

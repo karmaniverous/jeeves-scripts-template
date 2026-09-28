@@ -69,9 +69,51 @@ CLI usage:
 tsx src/admin/token-metrics.ts --from 2026-06-01 --to 2026-06-03
 ```
 
+## OpenClaw 2026.9+: agent SQLite source
+
+When `~/.openclaw/agents/main/agent/openclaw-agent.sqlite` exists, the collector reads OpenClaw usage from it instead of `SESSIONS_DIR`:
+
+- The DB is opened **read-only** (one read transaction, busy timeout). Nothing is ever written to it.
+- The reader is pinned to a schema version (`PRAGMA user_version`, currently **23**). Any other version makes the collector **exit non-zero** with `expected user_version 23, found N`. It never guesses.
+- All schema knowledge lives in `src/admin/lib/openclaw-db/schema-v23.ts`: hot `transcript_events` rows (`event_json` or checksummed zstd `event_zstd`), cold archives (`sessions/cold/*.jsonl.zst` or blob, sha256-verified) and deleted/reset archives (sha256-verified). Legacy `*.jsonl.reset.*` / `*.jsonl.deleted.*` files left in `SESSIONS_DIR` by the migration are read too (`legacy-archives.ts`).
+- Channel keys come from the same `detectChannel` logic on the first 50 events, and bucket files keep exactly the same format.
+- The cursor is `(transcript, seq)`, stored in runner state under `cursors-openclaw-db`. Usage in the still-open hour stops that transcript's cursor, so it's counted on a later run and never dropped. Nothing is counted twice.
+- With **no stored DB cursor**, the collector refuses to collect OpenClaw usage and exits non-zero, because counting from zero would double count history. Claude Code collection still runs.
+- `recalculate-token-metrics.ts` refuses to run on a DB host. Use `regenerate-token-metrics.ts` instead.
+
+### Regenerate
+
+```bash
+# scratch (never touches runner state or the live store; point TOKEN_METRICS_DIR at a dir holding a copied token-rates.json)
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --out /tmp/regen
+# live: rebuild [from, last closed hour), back up + replace buckets, REPLACE the DB cursor (bootstrap / full rebuild)
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --dry-run
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z
+# live: rebuild a closed range from already-counted events; cursor untouched
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-25T00:00:00Z --to 2026-09-26T00:00:00Z
+```
+
+Pause the `collect-token-metrics` job while a live regeneration runs.
+
+### Switching a host to the DB reader
+
+1. Find the 2026.9 upgrade time: the OpenClaw package install time, `schema_meta.updated_at` for `meta_key = 'primary'`, or `openclaw.json.pre-*` backups.
+2. Pick `--from` = the upgrade hour (floor to the hour). The JSONL collector wrote every bucket before that hour.
+3. Run a scratch regeneration from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
+4. Dry-run, then run the live regeneration from the upgrade hour. This bootstraps the cursor.
+
+### Future schema changes (upgrade runbook step)
+
+When OpenClaw bumps the agent schema, the collector exits non-zero naming the expected and found versions. Then:
+
+1. Add `src/admin/lib/openclaw-db/schema-vNN.ts` **beside** `schema-v23.ts` (don't edit v23). Implement the same `OpenClawDbSchema` contract and register it in `open-agent-db.ts`.
+2. Add a fixture and tests that use the real vNN DDL.
+3. Verify the overlap: scratch-regenerate from before the schema upgrade and compare pre-upgrade days with the live store. They must match, apart from explained differences.
+4. Regenerate the live store from the schema-upgrade hour (dry run first). The cursor is keyed by transcript and seq, so if vNN keeps seq numbering, the existing cursor stays valid. If it doesn't, the full rebuild replaces it.
+
 ## How to Safely Recalculate
 
-Use `recalculate-token-metrics.ts` when bucket data needs correction (e.g., after a rate card fix, a collector bug, or corrupted bucket files).
+On OpenClaw 2026.9+ hosts (agent DB present) use `regenerate-token-metrics.ts` (above). On legacy hosts, use `recalculate-token-metrics.ts` when bucket data needs correction (e.g., after a rate card fix, a collector bug, or corrupted bucket files).
 
 ### Dry run first
 

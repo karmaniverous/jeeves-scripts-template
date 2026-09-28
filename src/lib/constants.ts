@@ -345,10 +345,23 @@ export const SESSIONS_DIR = path.join(
 );
 
 /**
+ * OpenClaw 2026.9+ agent SQLite store. When present, collect-token-metrics
+ * reads OpenClaw usage from it (read-only, schema-pinned) instead of the
+ * legacy SESSIONS_DIR transcript files.
+ */
+export const OPENCLAW_AGENT_DB_PATH = path.join(
+  os.homedir(),
+  '.openclaw/agents/main/agent/openclaw-agent.sqlite',
+);
+
+/**
  * Directory where token metric bucket files are written. Each hourly
  * bucket is an immutable JSON file tracking token usage per model.
+ * Override with the TOKEN_METRICS_DIR environment variable (e.g. to point
+ * a scratch regeneration at a copied rate card).
  */
 export const TOKEN_METRICS_DIR =
+  process.env.TOKEN_METRICS_DIR ??
   '/opt/jeeves/state/jeeves-runner/token-metrics';
 
 /**
@@ -360,6 +373,12 @@ export const TOKEN_METRICS_NAMESPACE = 'token-metrics';
  * Runner state key for the token metrics scan cursor.
  */
 export const TOKEN_METRICS_CURSOR_KEY = 'cursors';
+
+/**
+ * Runner state key for the OpenClaw agent-DB cursor
+ * (per-transcript last processed sequence number).
+ */
+export const TOKEN_METRICS_DB_CURSOR_KEY = 'cursors-openclaw-db';
 
 /**
  * Path to the token rate card ($/MTok per model). Verified and updated

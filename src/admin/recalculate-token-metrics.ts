@@ -2,7 +2,9 @@
 /**
  * @module recalculate-token-metrics
  *
- * Safe recalculation of token metrics for a given date range.
+ * Safe recalculation of token metrics for a given date range from the
+ * legacy JSONL transcripts (pre-2026.9 OpenClaw). Refuses to run when the
+ * OpenClaw agent DB exists; use regenerate-token-metrics there.
  *
  * - Backs up affected bucket files before modification.
  * - Resets cursors only for the targeted time range.
@@ -19,69 +21,40 @@
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { getArg, runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
 import {
+  OPENCLAW_AGENT_DB_PATH,
   TOKEN_METRICS_CC_CURSOR_KEY,
   TOKEN_METRICS_CURSOR_KEY,
   TOKEN_METRICS_NAMESPACE,
 } from '../lib/constants.js';
+import { currentHourBoundaryMs, flushBuckets } from './lib/bucket-io.js';
 import {
-  bucketPath,
-  currentHourBoundaryMs,
-  flushBuckets,
-} from './lib/bucket-io.js';
+  backupBucketFiles,
+  deleteBucketFiles,
+} from './lib/bucket-maintenance.js';
 import { loadRateCard } from './lib/rate-card.js';
 import { enumHours, resetCursorsForRange } from './lib/recalc-utils.js';
 import { scanAllSessions } from './lib/session-scanner.js';
 import type { CursorState } from './types/token-metrics.js';
 
-// ── Backup ──────────────────────────────────────────────────────────
-
-function backupBucketFiles(hours: string[], dryRun: boolean): number {
-  let backed = 0;
-  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-
-  for (const hour of hours) {
-    const fp = bucketPath(hour);
-    if (!fs.existsSync(fp)) continue;
-
-    const backupFp = fp.replace(/\.json$/, `.backup-${ts}.json`);
-    if (dryRun) {
-      console.log(`[recalc] Would back up: ${fp}`);
-    } else {
-      fs.copyFileSync(fp, backupFp);
-      console.log(`[recalc] Backed up: ${path.basename(fp)}`);
-    }
-    backed++;
-  }
-  return backed;
-}
-
-// ── Delete bucket files for range ───────────────────────────────────
-
-function deleteBucketFiles(hours: string[], dryRun: boolean): number {
-  let deleted = 0;
-  for (const hour of hours) {
-    const fp = bucketPath(hour);
-    if (!fs.existsSync(fp)) continue;
-
-    if (dryRun) {
-      console.log(`[recalc] Would delete bucket: ${path.basename(fp)}`);
-    } else {
-      fs.unlinkSync(fp);
-    }
-    deleted++;
-  }
-  return deleted;
-}
-
 // ── Main ────────────────────────────────────────────────────────────
 
 function recalculate(): void {
+  if (fs.existsSync(OPENCLAW_AGENT_DB_PATH)) {
+    // OpenClaw 2026.9+ keeps transcripts in the agent DB; the legacy files
+    // this script rescans are incomplete there. Rebuilding from them would
+    // delete buckets and replace them with partial data.
+    console.error(
+      `[recalc] OpenClaw agent DB found at ${OPENCLAW_AGENT_DB_PATH}. Use regenerate-token-metrics.ts instead.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   const dryRun = process.argv.includes('--dry-run');
   const fromArg = getArg(process.argv, '--from', '');
   const toArg = getArg(process.argv, '--to', '');

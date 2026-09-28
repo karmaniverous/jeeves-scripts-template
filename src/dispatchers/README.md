@@ -6,8 +6,8 @@ Framework for autonomous LLM task dispatchers that read Markdown task files and 
 
 | Script | Description |
 | --- | --- |
-| `daily-digest.ts` | Reads `{CONTENT_DIR}/digest/TASK.md` and dispatches a gateway session to generate and publish a daily digest. Injects authoritative date context. Prerequisite: TASK.md must exist. |
-| `social-posts.ts` | Dynamically builds a task from pipeline-config refs and content paths, then dispatches a session to generate social media posts to a Notion database. Prerequisite: `notion.socialPostsDatabaseId`, `slack.socialChannel`, `slack.operatorDm` refs in pipeline-config. |
+| `daily-digest.ts` | Reads `{CONTENT_DIR}/digest/TASK.md` and dispatches a gateway session to generate and publish a daily digest. Injects authoritative date context. The script posts to the optional `slack.digestChannel` / `slack.operatorDm` refs. Prerequisite: TASK.md must exist. |
+| `social-posts.ts` | Dynamically builds a task from pipeline-config refs and content paths, then dispatches a session to generate social media posts to a Notion database. The script posts the worker's summaries to Slack. Prerequisite: `notion.socialPostsDatabaseId`, `slack.socialChannel`, `slack.operatorDm` refs (Slack IDs) in pipeline-config. |
 
 ## Activation
 
@@ -20,6 +20,27 @@ To activate a dispatcher:
 3. For dynamic dispatchers (`social-posts`): populate the required `pipeline-config.json` refs
 4. Register as a runner job: `runner_create_job({ id: 'generate-daily-digest', script: 'src/dispatchers/daily-digest.ts', schedule: { freq: 'daily', byhour: 6 }, ... })`
 
+## Slack: the job script does it, not the worker
+
+On OpenClaw 2026.9, sub-agent sessions (runner LLM workers) have **no `message` tool**, so a worker cannot read or post Slack. Every dispatcher that needs Slack uses `dispatchWithSlack` (`../lib/worker-slack/`):
+
+1. **Reads:** before dispatch, the script reads the configured channels/threads through the gateway `message` tool and appends them to the TASK under "Slack context".
+2. **Posts:** the TASK ends with the output contract. The worker returns its intended posts in one fenced `slack-posts` block (JSON array of `{channel, text, thread_ts?, pin?, edit_ts?}`, `[]` for none; `edit_ts` replaces an existing message's text). The script validates the whole block, checking every target against the job's allowlist, then posts (and pins) them itself. An invalid block or a disallowed target posts nothing and fails the job.
+3. **Flags:** `--dry-run` dispatches but prints the posts instead of posting. `--print-task` reads Slack, prints the full TASK and stops without dispatching.
+
+Pass `accountId` in the Slack config when the gateway has several Slack accounts (e.g. `vc`). TASK text must never tell the worker to use the message tool; describe _what_ to post and _where_ (by purpose) and let the contract do the rest. Targets are Slack IDs (`C…`, `G…`, `D…`, `U…`), never `#names`.
+
+```typescript
+await dispatchWithSlack(
+  task,
+  { jobId: 'my-job', thinking: 'low', timeout: 600 },
+  {
+    reads: [{ target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 30 }],
+    posts: [{ target: 'C0B2Z734KSP', purpose: "today's agenda (pin it)" }],
+  },
+);
+```
+
 ## Creating a New Dispatcher
 
 ### Static Task Dispatcher (reads a TASK.md file)
@@ -31,13 +52,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { runScript } from '@karmaniverous/jeeves';
-import { runDispatcher } from '@karmaniverous/jeeves-runner';
 
-import { CONTENT_DIR, SPAWN_WORKER_PATH } from '../lib/constants.js';
+import { CONTENT_DIR } from '../lib/constants.js';
+import { dispatchWithSlack } from '../lib/worker-slack/run.js';
 
 const taskFile = path.join(CONTENT_DIR, 'my-domain/TASK.md');
 
-runScript('dispatchers/my-dispatcher', () => {
+runScript('dispatchers/my-dispatcher', async () => {
   if (!fs.existsSync(taskFile)) {
     console.log(`[skip] Not configured — create ${taskFile}`);
     return;
@@ -45,10 +66,10 @@ runScript('dispatchers/my-dispatcher', () => {
 
   const task = fs.readFileSync(taskFile, 'utf8');
 
-  runDispatcher(
+  await dispatchWithSlack(
     task,
     { jobId: 'my-dispatcher-job', thinking: 'low' },
-    SPAWN_WORKER_PATH,
+    { posts: [{ target: 'C0123456789', purpose: 'the result summary' }] },
   );
 });
 ```
@@ -59,12 +80,11 @@ Pattern from `social-posts.ts` — build task text from pipeline-config refs:
 
 ```typescript
 import { runScript } from '@karmaniverous/jeeves';
-import { runDispatcher } from '@karmaniverous/jeeves-runner';
 
-import { SPAWN_WORKER_PATH } from '../lib/constants.js';
 import { tryGetRef } from '../lib/pipeline-config.js';
+import { dispatchWithSlack } from '../lib/worker-slack/run.js';
 
-runScript('dispatchers/my-dispatcher', () => {
+runScript('dispatchers/my-dispatcher', async () => {
   const channel = tryGetRef('slack.myChannel');
   if (!channel) {
     console.log(
@@ -73,9 +93,13 @@ runScript('dispatchers/my-dispatcher', () => {
     return;
   }
 
-  const task = `Do the work. Post results to ${channel}.`;
+  const task = 'Do the work, then return a results summary as a Slack post.';
 
-  runDispatcher(task, { jobId: 'my-job', thinking: 'low' }, SPAWN_WORKER_PATH);
+  await dispatchWithSlack(
+    task,
+    { jobId: 'my-job', thinking: 'low' },
+    { posts: [{ target: channel, purpose: 'the results summary' }] },
+  );
 });
 ```
 
@@ -119,4 +143,5 @@ Example location: `{CONTENT_DIR}/digest/TASK.md`
 | --- | --- |
 | `../lib/constants.ts` | Provides `CONTENT_DIR`, `SPAWN_WORKER_PATH` |
 | `../lib/pipeline-config.ts` | Provides `getRef()` / `tryGetRef()` for external service IDs |
-| `../lib/spawn-worker.ts` | Gateway session spawner invoked by `runDispatcher()` |
+| `../lib/spawn-worker.ts` | Gateway session spawner invoked by `dispatchSession()` |
+| `../lib/worker-slack/` | Job-side Slack I/O for workers: reads, `slack-posts` contract, posting |

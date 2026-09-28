@@ -88,6 +88,20 @@ Multi-tenant data routing by email domain, GitHub org, and Slack workspace. Depe
 
 Single-tenant instances route everything to `CONTENT_DIR` by default.
 
+### worker-output.ts
+
+Recovers an LLM worker's final reply after `dispatchSession`: it takes the session key from spawn-worker's `WORKER_RESULT` line and reads the last assistant message via the gateway's `sessions_history`. Job scripts use it to verify structured worker results instead of trusting the exit code.
+
+### worker-slack/
+
+Job-side Slack I/O for LLM workers. On OpenClaw 2026.9, sub-agent sessions have no `message` tool, so the job script does all Slack work:
+
+- `run.ts`: `dispatchWithSlack(task, dispatchOptions, { reads, posts })` is the production entry point. It supports `--dry-run` (print the posts instead of posting) and `--print-task` (print the TASK, no dispatch).
+- `worker-slack-job.ts`: orchestration with injected deps (read → TASK → dispatch → validate → post/pin).
+- `worker-posts.ts`: the `slack-posts` output contract (fenced JSON array of `{channel, thread_ts?, text, pin?}`), the worker instructions, and the Slack context formatting.
+- `slack-io.ts`: `read` / `send` / `pin` through the gateway `message` tool (`/tools/invoke`).
+- `slack-target.ts`: normalizes Slack IDs to `channel:…` / `user:…` targets.
+
 ### spawn-worker.ts
 
 Gateway session spawner — executable script invoked by `runDispatcher()`.

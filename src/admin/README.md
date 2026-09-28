@@ -9,7 +9,7 @@ Token metrics collection, session cost management, and OpenClaw post-install pat
 | `collect-token-metrics.ts` | Scans OpenClaw session transcripts and Claude Code session logs, writes immutable hourly rollup buckets to disk |
 | `session-refresh.ts` | Rotates bloated gateway sessions by resetting idle sessions with high cacheRead values |
 | `token-metrics.ts` | Queries pre-rolled hourly buckets and aggregates into a cost report for a given time range (also a CLI: `tsx src/admin/token-metrics.ts [--from ISO] [--to ISO]`) |
-| `refresh-token-rates.ts` | Dispatches an LLM session to fetch current published API pricing and update the rate card config |
+| `refresh-token-rates.ts` | Seeds the rate card if missing, dispatches an LLM session to verify it against published API pricing, and fails if the card is missing or invalid before or after the run |
 | `recalculate-token-metrics.ts` | Safe recalculation of token metrics for a date range with backup and dry-run support |
 | `patch-openclaw.ts` | Orchestrator that runs every OpenClaw post-install patch (one failure never skips the rest), prints a per-patch summary, exits non-zero on any failure. Forwards `--dry-run` |
 | `patch-tool-order.ts` | Patches OpenClaw's toolOrder array (located by content in any chunk) to insert Jeeves component tools above grep |
@@ -24,7 +24,9 @@ All `patch-*.ts` scripts locate their target chunk by content across `.js` and `
 flowchart LR
   collect["collect-token-metrics"] --> buckets["hourly bucket\nJSON files"]
   buckets --> metrics["token-metrics\n(query/aggregate)"]
-  buckets --> rates["refresh-token-rates\n(rate card)"]
+  seed["config/token-rates.seed.json"] -. "seed if missing" .-> card["token-rates.json\n(rate card)"]
+  rates["refresh-token-rates"] --> card
+  card --> collect
 
   refresh["session-refresh"] --> gateway["gateway API\n(refresh idle/oversized sessions)"]
 
@@ -66,6 +68,9 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | `lib/subagent-message-patches.ts` | Pure patch definitions for the sub-agent spawn flag and deny list |
 | `lib/text-patch.ts` | Pure anchored/idempotent text-patch primitives and cross-file plan reduction |
 | `lib/rate-card.ts` | Token rate card loader and cost calculator ($/MTok) |
+| `lib/rate-card-schema.ts` | Zod schema and validating file reader for the rate card |
+| `lib/rate-card-seed.ts` | Seed-if-missing: copies `config/token-rates.seed.json` into place, never overwrites |
+| `lib/refresh-rates-run.ts` | refresh-token-rates orchestration: pre-check, dispatch, post-check; decides job success |
 | `lib/recalc-utils.ts` | Pure helpers for recalculation: hour enumeration and cursor reset logic |
 | `lib/resolve-openclaw-dist.ts` | Resolves global npm openclaw dist directory for patching |
 | `lib/session-scanner.ts` | Session file scanning with cursor management and range filtering (shared by collector and recalculator) |

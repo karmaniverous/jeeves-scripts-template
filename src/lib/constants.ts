@@ -362,12 +362,21 @@ export const TOKEN_METRICS_NAMESPACE = 'token-metrics';
 export const TOKEN_METRICS_CURSOR_KEY = 'cursors';
 
 /**
- * Path to the aggregated token rates JSON file. Written by
- * refresh-token-rates, read by dashboards and cost reporting.
+ * Path to the token rate card ($/MTok per model). Verified and updated
+ * by refresh-token-rates, read by the collector and cost reporting.
  */
 export const TOKEN_RATES_PATH = path.join(
   TOKEN_METRICS_DIR,
   'token-rates.json',
+);
+
+/**
+ * Seed rate card shipped with the scripts repo. Copied to
+ * TOKEN_RATES_PATH only when no rate card exists (never overwrites).
+ */
+export const TOKEN_RATES_SEED_PATH = path.join(
+  SCRIPTS_DIR,
+  'config/token-rates.seed.json',
 );
 
 // ========== Session Refresh [OPTIONAL] ==========

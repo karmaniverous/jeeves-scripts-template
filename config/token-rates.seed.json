@@ -1,0 +1,37 @@
+{
+  "updatedAt": "2026-09-28T00:00:00Z",
+  "source": "SEED 2026-09-28: shipped with jeeves-scripts-template (config/token-rates.seed.json) and copied into place only when no rate card exists. Covers the default jeeves-tools OpenClaw model set (anthropic/claude-opus-5-5 primary; openai/gpt-5.6-sol and google/gemini-3.1-pro-preview fallbacks) plus delivery-mirror at 0. Rates copied from a rate card verified 2026-09-26 against the official Anthropic and OpenAI pricing pages; the Gemini rate was not re-verified then. The refresh-token-rates job re-verifies every entry and replaces this note.",
+  "unit": "$/MTok",
+  "models": {
+    "anthropic/claude-opus-5-5": {
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.2,
+      "cacheWrite": 5
+    },
+    "openai/gpt-5.6-sol": {
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.4,
+      "cacheWrite": 5
+    },
+    "google/gemini-3.1-pro-preview": {
+      "input": 2,
+      "output": 12,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "openclaw/delivery-mirror": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "clawdbot/delivery-mirror": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    }
+  }
+}

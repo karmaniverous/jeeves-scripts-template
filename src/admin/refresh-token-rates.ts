@@ -9,14 +9,27 @@
  * Runs daily and can be triggered on-demand by the collector
  * when it encounters an unknown model.
  *
- * Config dependencies: TOKEN_RATES_PATH, GATEWAY_HOST, GATEWAY_PORT
- * from constants.ts.
+ * Before dispatching, the rate card is seeded from
+ * config/token-rates.seed.json if it doesn't exist, then validated.
+ * After the worker finishes, the card is validated again. Any failure
+ * (no card, unreadable/invalid card, worker non-zero exit) exits
+ * non-zero so the runner records the run as an error.
+ *
+ * Config dependencies: TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH,
+ * SPAWN_WORKER_PATH from constants.ts.
  */
 
 import { runScript } from '@karmaniverous/jeeves';
-import { runDispatcher } from '@karmaniverous/jeeves-runner';
+import { dispatchSession, runDispatcher } from '@karmaniverous/jeeves-runner';
 
-import { SPAWN_WORKER_PATH, TOKEN_RATES_PATH } from '../lib/constants.js';
+import {
+  SPAWN_WORKER_PATH,
+  TOKEN_RATES_PATH,
+  TOKEN_RATES_SEED_PATH,
+} from '../lib/constants.js';
+import { readRateCardFile } from './lib/rate-card-schema.js';
+import { ensureRateCard } from './lib/rate-card-seed.js';
+import { runRefreshTokenRates } from './lib/refresh-rates-run.js';
 
 const JOB_ID = 'refresh-token-rates';
 
@@ -56,13 +69,20 @@ IMPORTANT: Only update rates you can verify from official pricing pages. If a pr
 
 Do NOT add models speculatively — only add models that appear on official pricing pages AND are actually used by this installation (check the model keys already in the rate card for the naming pattern).`;
 
-runScript('admin/refresh-token-rates', () => {
-  runDispatcher(
-    TASK,
-    {
-      jobId: JOB_ID,
-      thinking: 'low',
+const DISPATCH_OPTIONS = { jobId: JOB_ID, thinking: 'low' } as const;
+
+runScript('admin/refresh-token-rates', async () => {
+  // --dry-run: print the task and exit without touching the rate card.
+  if (process.argv.includes('--dry-run')) {
+    runDispatcher(TASK, DISPATCH_OPTIONS, SPAWN_WORKER_PATH);
+    return;
+  }
+
+  await runRefreshTokenRates({
+    ensure: () => {
+      ensureRateCard(TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH);
     },
-    SPAWN_WORKER_PATH,
-  );
+    verify: () => readRateCardFile(TOKEN_RATES_PATH),
+    dispatch: () => dispatchSession(TASK, DISPATCH_OPTIONS, SPAWN_WORKER_PATH),
+  });
 });

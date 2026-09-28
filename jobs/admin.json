@@ -40,7 +40,7 @@
       "interval": 59,
       "timezone": "UTC"
     },
-    "description": "Aggregate token metric buckets into a single rates JSON file for dashboards and cost reporting.",
+    "description": "Seed the token rate card if missing, then dispatch an LLM worker to verify per-model $/MTok rates against official provider pricing pages. Fails if the rate card is missing or invalid.",
     "overlap_policy": "skip",
     "timeout_seconds": 120,
     "enabled": true,

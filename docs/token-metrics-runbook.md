@@ -119,6 +119,14 @@ If you need to implement data retention:
 
 The rate card lives at `/opt/jeeves/state/jeeves-runner/token-metrics/token-rates.json`.
 
+### Seed on fresh instances
+
+The template ships a seed card at `config/token-rates.seed.json` (default instance models plus delivery-mirror at 0, `source` starts with `SEED <date>`). `refresh-token-rates` and `collect-token-metrics` copy it into place (creating the directory) **only when no rate card exists**. An existing card is never overwritten, even if it is invalid.
+
+### Failure reporting
+
+`refresh-token-rates` validates the card before dispatching the worker and again after the worker finishes. It exits non-zero (the runner records an error) if the card is missing and can't be seeded, is unreadable or invalid (bad JSON, missing rate category, no models), or if the worker exits non-zero.
+
 ### Automatic (recommended)
 
 The `refresh-token-rates.ts` job runs every 59 minutes and dispatches an LLM session to fetch current published API pricing. New models are added automatically when they appear in provider pricing pages.

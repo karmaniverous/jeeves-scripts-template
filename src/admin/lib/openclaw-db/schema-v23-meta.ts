@@ -8,12 +8,14 @@
  * - `session_transcript_archives.session_key` for deleted/reset sessions;
  * - `session_nodes`: `label` plus `entry_json` (`groupChannel`,
  *   `displayName`, `delivery.origin.label`, `parentSessionKey` /
- *   `spawnedBy`);
+ *   `spawnedBy`); parents are linked transitively (bounded, cycle-safe)
+ *   so subagents can roll up to their root spawner;
  * - `conversations`: native Slack channel id -> label (`slack:<team>#name`).
  */
 
 import type { DatabaseSync } from 'node:sqlite';
 
+import { MAX_ROLLUP_DEPTH } from './subagent-rollup.js';
 import type { SessionMeta } from './types.js';
 
 interface NodeInfo {
@@ -118,9 +120,11 @@ export function loadV23Meta(db: DatabaseSync): V23MetaIndex {
     .all() as { session_id: string; session_key: string }[];
   for (const w of wrows) windows.set(w.session_id, w.session_key);
 
-  const build = (sessionKey: string, depth: number): SessionMeta => {
-    const n = nodes.get(sessionKey) ?? {};
+  const build = (sessionKey: string, seen: Set<string>): SessionMeta => {
+    const node = nodes.get(sessionKey);
+    const n = node ?? {};
     const meta: SessionMeta = { sessionKey };
+    if (!node) meta.missing = true;
     if (n.label) meta.label = n.label;
     const id = SLACK_CHANNEL_ID.exec(sessionKey)?.[1].toLowerCase();
     const channelName =
@@ -136,16 +140,21 @@ export function loadV23Meta(db: DatabaseSync): V23MetaIndex {
       !/^[a-z]+:/i.test(n.originLabel)
     )
       meta.peerName = n.originLabel;
-    if (depth === 0 && n.parentKey && n.parentKey !== sessionKey)
-      meta.parent = build(n.parentKey, 1);
+    if (
+      n.parentKey &&
+      !seen.has(n.parentKey) &&
+      n.parentKey !== sessionKey &&
+      seen.size < MAX_ROLLUP_DEPTH
+    )
+      meta.parent = build(n.parentKey, new Set(seen).add(sessionKey));
     return meta;
   };
 
   return {
     forSession: (sessionId) => {
       const key = windows.get(sessionId);
-      return key ? build(key, 0) : undefined;
+      return key ? build(key, new Set()) : undefined;
     },
-    forKey: (sessionKey) => build(sessionKey, 0),
+    forKey: (sessionKey) => build(sessionKey, new Set()),
   };
 }

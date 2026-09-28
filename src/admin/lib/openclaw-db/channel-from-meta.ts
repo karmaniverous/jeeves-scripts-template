@@ -11,8 +11,11 @@
  *
  * Keys keep the JSONL-era vocabulary: slack:channel:#name (or the
  * upper-case channel id when no name is known), slack:dm:<person-slug>,
- * subagent:label:<label>, subagent:for:<channel>, meta-<phase>.
- * New for 2026.9: cron:<label> and telegram:<kind>:<name>.
+ * subagent:label:<label>, meta-<phase>.
+ * New for 2026.9: cron:<label>, telegram:<kind>:<name> and runner:<job>.
+ *
+ * Subagents roll up to the session that spawned them (subagent-rollup.ts):
+ * a subagent's usage is attributed to its root spawner's channel.
  */
 
 import {
@@ -21,6 +24,7 @@ import {
   detectMetaPhase,
   slugify,
 } from '../channel-mapper.js';
+import { rollupSubagent } from './subagent-rollup.js';
 import type { SessionMeta } from './types.js';
 
 /** Longest label kept in a key (same cap as the text rules). */
@@ -41,22 +45,19 @@ export function sanitizeChannel(result: ChannelResult): ChannelResult {
   return { key: key || 'unknown', name: name || key || 'Unknown' };
 }
 
-function subagentChannel(meta: SessionMeta): ChannelResult | null {
+/**
+ * A subagent's own label-based channel (the pre-rollup name), or null
+ * when it has no label.
+ */
+export function labelChannel(meta: SessionMeta): ChannelResult | null {
   const label = meta.label ? cleanPart(meta.label) : '';
-  if (label) {
-    const phase = detectMetaPhase(label);
-    if (phase) return phase;
-    if (label.includes('jeeves-meta-synthesis'))
-      return { key: 'meta-synthesis', name: 'Meta Synthesis' };
-    const value = cleanPart(label.slice(0, MAX_LABEL));
-    return { key: `subagent:label:${value}`, name: `Subagent: label ${value}` };
-  }
-  const parent = meta.parent ? channelFromMeta(meta.parent) : null;
-  if (parent?.key.startsWith('slack:')) {
-    const target = parent.key.replace(/^slack:(channel:)?/, '');
-    return { key: `subagent:for:${target}`, name: `Subagent: for ${target}` };
-  }
-  return null;
+  if (!label) return null;
+  const phase = detectMetaPhase(label);
+  if (phase) return phase;
+  if (label.includes('jeeves-meta-synthesis'))
+    return { key: 'meta-synthesis', name: 'Meta Synthesis' };
+  const value = cleanPart(label.slice(0, MAX_LABEL));
+  return { key: `subagent:label:${value}`, name: `Subagent: label ${value}` };
 }
 
 /**
@@ -91,7 +92,8 @@ export function channelFromMeta(meta: SessionMeta): ChannelResult | null {
     const name = cleanPart(meta.channelName ?? id);
     return { key: `telegram:${sub}:${name}`, name: `Telegram: ${name}` };
   }
-  if (kind === 'subagent') return subagentChannel(meta);
+  if (kind === 'subagent')
+    return rollupSubagent(meta, channelFromMeta, labelChannel);
   if (kind === 'cron') {
     const label = meta.label
       ? cleanPart(meta.label.replace(/^cron:\s*/i, ''))

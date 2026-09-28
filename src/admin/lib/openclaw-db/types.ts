@@ -29,8 +29,10 @@ export interface SessionMeta {
   channelName?: string;
   /** Direct-message counterpart's display name. */
   peerName?: string;
-  /** Metadata of the spawning session (one level). */
+  /** Metadata of the spawning session, linked transitively to the root. */
   parent?: SessionMeta;
+  /** The store has no session node for this key (e.g. deleted parent). */
+  missing?: true;
 }
 
 /**

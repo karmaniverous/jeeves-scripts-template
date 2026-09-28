@@ -78,7 +78,7 @@ describe('channelFromMeta', () => {
       'meta-architect',
     ],
     [
-      'unlabelled subagent spawned from a Slack channel',
+      'unlabelled subagent spawned from a Slack channel (rolled up)',
       {
         sessionKey: 'agent:main:subagent:1',
         parent: {
@@ -86,7 +86,7 @@ describe('channelFromMeta', () => {
           channelName: '#ops-ceo',
         },
       },
-      'subagent:for:#ops-ceo',
+      'slack:channel:#ops-ceo',
     ],
     [
       'cron job',

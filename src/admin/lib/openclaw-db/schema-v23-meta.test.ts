@@ -122,6 +122,58 @@ describe('loadV23Meta', () => {
   });
 });
 
+describe('loadV23Meta parent linkage', () => {
+  it('links parents transitively and flags deleted ones', () => {
+    const fx = createV23Fixture(root);
+    const node = (key: string, spawnedBy: string, label?: string) => ({
+      key,
+      label,
+      entry: { spawnedBy, spawnDepth: 1 },
+    });
+    fx.addHotSession('ch', [sessionHeader('ch')], [], {
+      key: 'agent:main:slack:channel:c0aujrk8dtm',
+      entry: slackChannelEntry('C0AUJRK8DTM', 'ops-ceo'),
+    });
+    fx.addHotSession(
+      's1',
+      [],
+      [],
+      node(
+        'agent:main:subagent:1',
+        'agent:main:slack:channel:c0aujrk8dtm',
+        'orchestrator',
+      ),
+    );
+    fx.addHotSession(
+      's2',
+      [],
+      [],
+      node('agent:main:subagent:2', 'agent:main:subagent:1'),
+    );
+    fx.addHotSession(
+      's3',
+      [],
+      [],
+      node('agent:main:subagent:3', 'agent:main:subagent:gone', 'review'),
+    );
+    fx.close();
+
+    const db = new DatabaseSync(fx.dbPath, { readOnly: true });
+    try {
+      const meta = loadV23Meta(db);
+      const nested = meta.forSession('s2');
+      expect(nested?.parent?.parent?.channelName).toBe('#ops-ceo');
+      expect(nested?.parent?.missing).toBeUndefined();
+      expect(meta.forSession('s3')?.parent).toEqual({
+        sessionKey: 'agent:main:subagent:gone',
+        missing: true,
+      });
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe('scanOpenClawDb channel naming (2026.9 events)', () => {
   async function scan(dbPath: string, sessionsDir: string) {
     vi.resetModules();
@@ -171,6 +223,21 @@ describe('scanOpenClawDb channel naming (2026.9 events)', () => {
       [],
       { key: 'agent:main:subagent:2', label: 'worker-refresh-' },
     );
+    fx.addHotSession('kid', [sessionHeader('kid'), assistantUsage(T10)], [], {
+      key: 'agent:main:subagent:3',
+      label: 'jeeves-tools e2e #5',
+      entry: { spawnedBy: 'agent:main:slack:direct:u0ab7j9rchf' },
+    });
+    fx.addHotSession(
+      'runner',
+      [sessionHeader('runner'), assistantUsage(T10)],
+      [],
+      {
+        key: 'agent:main:subagent:4',
+        label: 'worker-generate',
+        entry: { spawnedBy: 'agent:main:main' },
+      },
+    );
     fx.addHotSession('legacy', [
       sessionHeader('legacy'),
       userMessage('[Subagent Task] in D:\\repos\\karmaniverous\\jeeves-tools.'),
@@ -179,6 +246,7 @@ describe('scanOpenClawDb channel naming (2026.9 events)', () => {
     fx.close();
 
     expect(await scan(fx.dbPath, fx.sessionsDir)).toEqual([
+      'runner:generate',
       'slack:dm:jason-williscroft',
       'subagent:label:worker-refresh-',
       'subagent:repo:karmaniverous/jeeves-tools',

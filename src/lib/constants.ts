@@ -355,6 +355,17 @@ export const OPENCLAW_AGENT_DB_PATH = path.join(
 );
 
 /**
+ * First UTC hour of OpenClaw 2026.9 usage on this instance (the hour it
+ * switched to the agent SQLite store). Hours before it were counted by the
+ * legacy JSONL collector and must not be rewritten, so
+ * regenerate-token-metrics refuses an earlier --from unless
+ * --allow-pre-upgrade is given. Set per instance; override with the
+ * OPENCLAW_UPGRADE_CUTOFF environment variable.
+ */
+export const OPENCLAW_UPGRADE_CUTOFF =
+  process.env.OPENCLAW_UPGRADE_CUTOFF ?? '2026-09-24T09:00:00Z';
+
+/**
  * Directory where token metric bucket files are written. Each hourly
  * bucket is an immutable JSON file tracking token usage per model.
  * Override with the TOKEN_METRICS_DIR environment variable (e.g. to point

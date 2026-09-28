@@ -195,8 +195,10 @@ export function detectChannel(lines: string[]): ChannelResult {
     return slackChannelResult(labelMatch[1]);
   }
 
-  // Slack DM
-  const dmMatch = text.match(/Slack DM from ([^:]+?):/);
+  // Slack DM. The name ends at a colon or end of line: OpenClaw 2026.9
+  // puts "Slack DM from <name>" on its own line, followed by injected
+  // runtime-context text that must not leak into the key.
+  const dmMatch = /Slack DM from ([^:\n]+?)[ \t]*(?::|$)/m.exec(text);
   if (dmMatch) {
     const person = dmMatch[1].trim();
     return { key: 'slack:dm:' + slugify(person), name: 'DM: ' + person };
@@ -323,7 +325,7 @@ function detectSubagentLabel(text: string): ChannelResult | null {
  *
  * Returns null if no phase is detected.
  */
-function detectMetaPhase(text: string): ChannelResult | null {
+export function detectMetaPhase(text: string): ChannelResult | null {
   // H1 header pattern: # jeeves-meta · ARCHITECT|BUILDER|CRITIC · <path>
   const h1Match = /# jeeves-meta\s*[·•]\s*(ARCHITECT|BUILDER|CRITIC)/i.exec(
     text,
@@ -385,7 +387,7 @@ function slackChannelResult(label: string): ChannelResult {
 /**
  * Slugify a person's name for use as a DM channel key.
  */
-function slugify(name: string): string {
+export function slugify(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

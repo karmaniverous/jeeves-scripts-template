@@ -76,7 +76,9 @@ When `~/.openclaw/agents/main/agent/openclaw-agent.sqlite` exists, the collector
 - The DB is opened **read-only** (one read transaction, busy timeout). Nothing is ever written to it.
 - The reader is pinned to a schema version (`PRAGMA user_version`, currently **23**). Any other version makes the collector **exit non-zero** with `expected user_version 23, found N`. It never guesses.
 - All schema knowledge lives in `src/admin/lib/openclaw-db/schema-v23.ts`: hot `transcript_events` rows (`event_json` or checksummed zstd `event_zstd`), cold archives (`sessions/cold/*.jsonl.zst` or blob, sha256-verified) and deleted/reset archives (sha256-verified). Legacy `*.jsonl.reset.*` / `*.jsonl.deleted.*` files left in `SESSIONS_DIR` by the migration are read too (`legacy-archives.ts`).
-- Channel keys come from the same `detectChannel` logic on the first 50 events, and bucket files keep exactly the same format.
+- Channel keys come from the session's **recorded metadata** (`channel-from-meta.ts`, names loaded by `schema-v23-meta.ts`): the session key (`session_windows`, or `session_transcript_archives` for deleted/reset sessions), plus names from `session_nodes` (`groupChannel`, `displayName`, `delivery.origin.label`, `label`, parent session) and `conversations`. This gives `slack:channel:#name` (or the upper-case channel id when no name is recorded), `slack:dm:<person>`, `subagent:label:<label>` (`meta-<phase>` for meta labels), `subagent:for:<channel>` for unlabelled subagents spawned from Slack, `cron:<label>` and `telegram:<kind>:<name>`.
+- The legacy `detectChannel` text rules (first 50 events) are used only when metadata is absent or doesn't identify the channel, e.g. `agent:main:main`, recovered sessions and legacy archive files. 2026.9 injects runtime-context text into transcripts, which those rules used to misread (`slack:dm:<name>-approved-executables-…`), so the DM rule now stops at the end of the line. Every key has its whitespace collapsed and trailing punctuation stripped (no more `subagent:repo:…/jeeves-tools.`).
+- Bucket files keep exactly the same format.
 - The cursor is `(transcript, seq)`, stored in runner state under `cursors-openclaw-db`. Usage in the still-open hour stops that transcript's cursor, so it's counted on a later run and never dropped. Nothing is counted twice.
 - With **no stored DB cursor**, the collector refuses to collect OpenClaw usage and exits non-zero, because counting from zero would double count history. Claude Code collection still runs.
 - `recalculate-token-metrics.ts` refuses to run on a DB host. Use `regenerate-token-metrics.ts` instead.
@@ -95,11 +97,13 @@ tsx src/admin/regenerate-token-metrics.ts --from 2026-09-25T00:00:00Z --to 2026-
 
 Pause the `collect-token-metrics` job while a live regeneration runs.
 
+`--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
+
 ### Switching a host to the DB reader
 
 1. Find the 2026.9 upgrade time: the OpenClaw package install time, `schema_meta.updated_at` for `meta_key = 'primary'`, or `openclaw.json.pre-*` backups.
-2. Pick `--from` = the upgrade hour (floor to the hour). The JSONL collector wrote every bucket before that hour.
-3. Run a scratch regeneration from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
+2. Pick `--from` = the upgrade hour (floor to the hour), and set `OPENCLAW_UPGRADE_CUTOFF` to it. The JSONL collector wrote every bucket before that hour.
+3. Run a scratch regeneration (`--out`, `--allow-pre-upgrade`) from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
 4. Dry-run, then run the live regeneration from the upgrade hour. This bootstraps the cursor.
 
 ### Future schema changes (upgrade runbook step)

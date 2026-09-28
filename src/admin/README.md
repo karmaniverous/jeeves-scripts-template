@@ -58,7 +58,10 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | File | Purpose |
 | --- | --- |
 | `lib/bucket-io.ts` | Hourly bucket file I/O — read, write, merge, flush |
-| `lib/channel-mapper.ts` | Maps session transcripts to channel keys (Slack, DM, heartbeat, subagent, meta-synthesis) |
+| `lib/channel-mapper.ts` | Maps session transcripts to channel keys (Slack, DM, heartbeat, subagent, meta-synthesis) from transcript text |
+| `lib/openclaw-db/channel-from-meta.ts` | 2026.9+ channel keys from recorded session metadata; text rules only as fallback; sanitized |
+| `lib/openclaw-db/schema-v23-meta.ts` | Loads schema-23 session keys and channel/peer/label names (read-only) |
+| `lib/regen-guard.ts` | Refuses regenerate `--from` before `OPENCLAW_UPGRADE_CUTOFF` without `--allow-pre-upgrade` |
 | `lib/claude-code-scanner.ts` | Scans Claude Code session JSONL files for Anthropic usage records |
 | `lib/also-allow-policy.ts` | Pure detection (upstream-fixed / legacy) and legacy patch for `hasRestrictiveAllowPolicy` |
 | `lib/dist-patch-io.ts` | Finds dist chunks by content (.js/.mjs), previews or atomically applies a patch plan, `--dry-run` flag |

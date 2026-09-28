@@ -12,6 +12,7 @@
  * - `session_transcript_archives` (deleted/reset transcripts: JSONL with a
  *   session header line, identity or zstd encoded, sha256-verified; line
  *   index = seq, matching the hot table where seq starts at 0).
+ * Channel metadata (session keys and names) comes from schema-v23-meta.ts.
  * A future schema adds schema-vNN.ts beside this file; do not edit this one.
  */
 
@@ -21,6 +22,7 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import zlib from 'node:zlib';
 
+import { loadV23Meta } from './schema-v23-meta.js';
 import type {
   OpenClawDbSchema,
   SchemaContext,
@@ -159,7 +161,7 @@ function listTranscripts(
 ): TranscriptRef[] {
   const sessions = new Map<
     string,
-    { hotMax?: number; cold?: ColdRow; archives: string[] }
+    { hotMax?: number; cold?: ColdRow; archives: string[]; archiveKey?: string }
   >();
   const entry = (id: string) => {
     let e = sessions.get(id);
@@ -186,10 +188,19 @@ function listTranscripts(
 
   const archives = db
     .prepare(
-      'SELECT session_id, archive_name FROM session_transcript_archives ORDER BY created_at, archive_name',
+      'SELECT session_id, session_key, archive_name FROM session_transcript_archives ORDER BY created_at, archive_name',
     )
-    .all() as { session_id: string; archive_name: string }[];
-  for (const r of archives) entry(r.session_id).archives.push(r.archive_name);
+    .all() as {
+    session_id: string;
+    session_key: string;
+    archive_name: string;
+  }[];
+  for (const r of archives) {
+    const e = entry(r.session_id);
+    e.archives.push(r.archive_name);
+    e.archiveKey = r.session_key;
+  }
+  const meta = loadV23Meta(db);
 
   const eventsStmt = db.prepare(
     'SELECT seq, event_json, event_zstd, event_utf8_bytes FROM transcript_events WHERE session_id = ? ORDER BY seq',
@@ -200,6 +211,9 @@ function listTranscripts(
 
   return [...sessions].map(([sessionId, e]) => ({
     cursorKey: `session:${sessionId}`,
+    meta:
+      meta.forSession(sessionId) ??
+      (e.archiveKey ? meta.forKey(e.archiveKey) : undefined),
     maxSeq:
       e.archives.length > 0
         ? undefined

@@ -17,9 +17,11 @@
  * - live with `--to`: rebuild [from, to) from events the incremental
  *   collector has already counted (seq <= stored cursor); cursor untouched.
  * `--dry-run` scans and reports without writing anything.
+ * `--from` earlier than OPENCLAW_UPGRADE_CUTOFF is refused (pre-upgrade
+ * history is never rewritten) unless `--allow-pre-upgrade` is given.
  *
  * Usage:
- *   tsx src/admin/regenerate-token-metrics.ts --from ISO [--to ISO] [--out DIR] [--dry-run]
+ *   tsx src/admin/regenerate-token-metrics.ts --from ISO [--to ISO] [--out DIR] [--dry-run] [--allow-pre-upgrade]
  */
 
 import fs from 'node:fs';
@@ -29,6 +31,7 @@ import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
 import {
   OPENCLAW_AGENT_DB_PATH,
+  OPENCLAW_UPGRADE_CUTOFF,
   SESSIONS_DIR,
   TOKEN_METRICS_CC_CURSOR_KEY,
   TOKEN_METRICS_DB_CURSOR_KEY,
@@ -48,6 +51,7 @@ import { parseDbCursorState } from './lib/openclaw-db/db-cursor.js';
 import { scanOpenClawDb } from './lib/openclaw-db/scan-openclaw-db.js';
 import { loadRateCard } from './lib/rate-card.js';
 import { enumHours, resetCursorsForRange } from './lib/recalc-utils.js';
+import { checkRegenFrom } from './lib/regen-guard.js';
 import { scanClaudeCodeSessions } from './lib/session-scanner.js';
 import type { CursorState, HourlyBucket } from './types/token-metrics.js';
 
@@ -126,6 +130,15 @@ function regenerate(): void {
   const toMs = toArg ? Math.min(hourArg(toArg), cutoffMs) : cutoffMs;
   if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs) {
     fail('Invalid or empty range.');
+    return;
+  }
+  const refused = checkRegenFrom(
+    fromMs,
+    OPENCLAW_UPGRADE_CUTOFF,
+    process.argv.includes('--allow-pre-upgrade'),
+  );
+  if (refused) {
+    fail(refused);
     return;
   }
 

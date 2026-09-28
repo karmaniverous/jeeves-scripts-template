@@ -2,9 +2,10 @@
  * @module openclaw-db/db-scanner
  *
  * Turns OpenClaw transcripts (from a schema module or legacy archives) into
- * hourly token buckets, reusing the legacy collector's channel detection
- * (first 50 events) and usage parsing so bucket keys and costs match the
- * JSONL-era collector exactly. Pure over its inputs; no fs/DB writes.
+ * hourly token buckets. Channels come from session metadata when the store
+ * has it, else the legacy text rules over the first 50 events
+ * (channel-from-meta.ts); usage parsing is the JSONL collector's, so costs
+ * match exactly. Pure over its inputs; no fs/DB writes.
  *
  * Per transcript, events are walked in seq order from the cursor:
  * - seq <= cursor.lastSeq: already handled, skipped;
@@ -18,10 +19,11 @@
 
 import type { HourlyBucket } from '../../types/token-metrics.js';
 import { mergeUsage, tsToHour } from '../bucket-io.js';
-import { detectChannel, registerChannelName } from '../channel-mapper.js';
+import { registerChannelName } from '../channel-mapper.js';
 import { normalizeUsage, parseUsageLine } from '../usage-parser.js';
+import { resolveChannel } from './channel-from-meta.js';
 import type { DbCursorState } from './db-cursor.js';
-import type { TranscriptEvent, TranscriptRef } from './types.js';
+import type { SessionMeta, TranscriptEvent, TranscriptRef } from './types.js';
 
 /** Events used for channel detection (same as the JSONL collector). */
 const CHANNEL_HEAD_EVENTS = 50;
@@ -41,8 +43,12 @@ export interface DbScanStats {
   usageCounted: number;
 }
 
-function channelFor(events: TranscriptEvent[]): string {
-  const result = detectChannel(
+function channelFor(
+  events: TranscriptEvent[],
+  meta: SessionMeta | undefined,
+): string {
+  const result = resolveChannel(
+    meta,
     events.slice(0, CHANNEL_HEAD_EVENTS).map((e) => e.json),
   );
   if (result.key.startsWith('slack:channel:') && result.name.startsWith('#'))
@@ -87,7 +93,7 @@ export function scanTranscripts(
     }
 
     const events = ref.load();
-    const channel = channelFor(events);
+    const channel = channelFor(events, ref.meta);
     let lastSeq = startSeq;
     let lastTimestamp = prior?.lastTimestamp ?? 0;
 

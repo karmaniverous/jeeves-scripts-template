@@ -106,6 +106,40 @@ function processOCFile(
 }
 
 /**
+ * List OpenClaw transcript files in SESSIONS_DIR.
+ *
+ * OpenClaw 2026.9+ keeps transcripts in its agent SQLite store, so the
+ * legacy directory may be missing or empty. In that case log clearly and
+ * return no files: OpenClaw sources are skipped and Claude Code collection
+ * continues.
+ */
+function listOCSessionFiles(): string[] {
+  if (!fs.existsSync(SESSIONS_DIR)) {
+    console.warn(
+      `[token-metrics] SESSIONS_DIR not found (${SESSIONS_DIR}); skipping OpenClaw transcripts, Claude Code collection continues.`,
+    );
+    return [];
+  }
+
+  const sessionFiles = fs
+    .readdirSync(SESSIONS_DIR)
+    .filter(
+      (f) =>
+        f.endsWith('.jsonl') ||
+        f.includes('.jsonl.deleted.') ||
+        f.includes('.jsonl.reset.'),
+    );
+
+  if (sessionFiles.length === 0) {
+    console.warn(
+      `[token-metrics] SESSIONS_DIR has no transcript files (${SESSIONS_DIR}); skipping OpenClaw transcripts, Claude Code collection continues.`,
+    );
+  }
+
+  return sessionFiles;
+}
+
+/**
  * Scan all OpenClaw and Claude Code session files, extracting usage
  * records within [fromMs, cutoffMs) and merging into hourly buckets.
  *
@@ -122,13 +156,7 @@ export function scanAllSessions(
   const seenModels = new Set<string>();
 
   // ── OpenClaw sessions ──
-  const allFiles = fs.readdirSync(SESSIONS_DIR);
-  const sessionFiles = allFiles.filter(
-    (f) =>
-      f.endsWith('.jsonl') ||
-      f.includes('.jsonl.deleted.') ||
-      f.includes('.jsonl.reset.'),
-  );
+  const sessionFiles = listOCSessionFiles();
 
   let ocProcessed = 0;
   let ocSkipped = 0;

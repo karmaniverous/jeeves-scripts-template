@@ -23,6 +23,8 @@ For each file, the collector:
 
 If the collector encounters a model not in the rate card, it **refuses to write any buckets** and triggers a rate card refresh job.
 
+If `SESSIONS_DIR` is missing or holds no transcript files (OpenClaw 2026.9+ moved transcripts into its agent SQLite store), the collector logs a warning, skips OpenClaw sources, keeps collecting Claude Code, and exits 0.
+
 ### 2. Bucket Files (on-disk format)
 
 Each bucket file is a JSON file at:

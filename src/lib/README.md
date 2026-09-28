@@ -6,7 +6,7 @@ Shared infrastructure consumed by all domain scripts. This is where instance con
 
 ### constants.ts
 
-**The first file to edit on a new instance.** Centralized paths, credentials, and integration-specific values used across all scripts.
+**The first file to edit on a new instance.** Centralized paths, credentials, and integration-specific values used across all scripts. `constants.ts` is a barrel; the values live in cohesive modules under `constants/` (`instance.ts`, `integrations.ts`, `trackers.ts`, `token-metrics.ts`). Always import from the barrel.
 
 Key exports:
 

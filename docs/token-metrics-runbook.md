@@ -102,7 +102,7 @@ tsx src/admin/regenerate-token-metrics.ts --from 2026-09-25T00:00:00Z --to 2026-
 
 Pause the `collect-token-metrics` job while a live regeneration runs.
 
-`--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
+`--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants/token-metrics.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
 
 ### Switching a host to the DB reader
 

@@ -16,17 +16,8 @@ import { readJson } from '@karmaniverous/jeeves';
 import { TOKEN_RATES_PATH } from '../../lib/constants.js';
 import type { TokenCategory } from '../types/token-metrics.js';
 import { TOKEN_CATEGORIES } from '../types/token-metrics.js';
-
-/** Per-model rates in $/MTok. */
-export type ModelRates = Record<TokenCategory, number>;
-
-/** Full rate card config file schema. */
-export interface RateCardConfig {
-  updatedAt: string;
-  source?: string;
-  unit: string;
-  models: Record<string, ModelRates>;
-}
+import type { ModelRates, RateCardConfig } from './rate-card-schema.js';
+import { parseRateCard } from './rate-card-schema.js';
 
 /** Singleton cache. */
 let _rateCard: RateCardConfig | null = null;
@@ -37,14 +28,14 @@ let _rateCard: RateCardConfig | null = null;
  */
 export function loadRateCard(): RateCardConfig {
   if (!_rateCard) {
-    const card = readJson<RateCardConfig | null>(TOKEN_RATES_PATH, null);
-    if (!card) {
+    const raw = readJson<unknown>(TOKEN_RATES_PATH, null);
+    if (raw === null) {
       throw new Error(
         `Token rate card not found at ${TOKEN_RATES_PATH}. ` +
           'Create it with per-model $/MTok rates.',
       );
     }
-    _rateCard = card;
+    _rateCard = parseRateCard(raw, TOKEN_RATES_PATH);
   }
   return _rateCard;
 }

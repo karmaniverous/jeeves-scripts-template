@@ -36,13 +36,14 @@
     "name": "Refresh Token Rates",
     "script": "src/admin/refresh-token-rates.ts",
     "schedule": {
-      "freq": "minutely",
-      "interval": 59,
+      "freq": "daily",
+      "byhour": 5,
+      "byminute": 37,
       "timezone": "UTC"
     },
-    "description": "Aggregate token metric buckets into a single rates JSON file for dashboards and cost reporting.",
+    "description": "Seed the token rate card if missing, then dispatch an LLM worker to verify per-model $/MTok rates against official provider pricing pages. Fails if the rate card is missing or invalid, or the worker does not report a verified RESULT.",
     "overlap_policy": "skip",
-    "timeout_seconds": 120,
+    "timeout_seconds": 600,
     "enabled": true,
     "domain": "admin",
     "prerequisite": null

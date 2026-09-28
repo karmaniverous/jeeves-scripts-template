@@ -61,6 +61,15 @@ describe('rate-card', () => {
 
       expect(() => loadRateCard()).toThrow(/Token rate card not found/);
     });
+
+    it('throws when the rate card fails schema validation', () => {
+      vi.mocked(readJson).mockReturnValue({
+        ...MOCK_RATE_CARD,
+        models: { 'x/y': { input: 1, output: 1, cacheRead: 0 } },
+      });
+
+      expect(() => loadRateCard()).toThrow(/Invalid token rate card/);
+    });
   });
 
   describe('resetRateCard', () => {

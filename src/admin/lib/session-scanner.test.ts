@@ -58,6 +58,21 @@ function userLine(text: string): string {
   });
 }
 
+/** Write a Claude Code session file with one assistant usage line. */
+function writeCCFixture(tsIso: string): void {
+  const projectDir = path.join(tmpDir, 'cc-projects', 'D--repos-acme-app');
+  fs.mkdirSync(projectDir, { recursive: true });
+  const line = JSON.stringify({
+    type: 'assistant',
+    timestamp: tsIso,
+    message: {
+      model: 'claude-sonnet-4-6',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    },
+  });
+  fs.writeFileSync(path.join(projectDir, 'cc-session.jsonl'), line + '\n');
+}
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 let tmpDir: string;
@@ -116,6 +131,8 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scanner-test-'));
   sessionsDir = path.join(tmpDir, 'sessions');
   fs.mkdirSync(sessionsDir, { recursive: true });
+  // The missing/empty SESSIONS_DIR guard warns; keep test output clean.
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -286,6 +303,40 @@ describe('scanAllSessions', () => {
     expect(result.ocProcessed).toBe(0);
     expect(result.ocSkipped).toBe(0);
   });
+
+  it.each([
+    [
+      'missing',
+      () => {
+        fs.rmSync(sessionsDir, { recursive: true, force: true });
+      },
+    ],
+    ['empty', () => undefined],
+  ])(
+    'skips OpenClaw and keeps collecting Claude Code when SESSIONS_DIR is %s',
+    async (label, prepare) => {
+      prepare();
+      const ts = '2026-06-15T10:30:00Z';
+      writeCCFixture(ts);
+      const warn = vi.mocked(console.warn);
+
+      const scan = await loadScanner();
+      const result = scan(0, new Date(ts).getTime() + 3600_000, {}, {});
+
+      expect(result.ocProcessed).toBe(0);
+      expect(result.ccProcessed).toBe(1);
+      expect(
+        result.buckets.get('2026-06-15T10')?.channels['cc:acme-app'],
+      ).toBeDefined();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          label === 'missing'
+            ? 'SESSIONS_DIR not found'
+            : 'no transcript files',
+        ),
+      );
+    },
+  );
 
   it('tracks multiple models in seenModels', async () => {
     const ts1 = '2026-06-15T10:30:00Z';

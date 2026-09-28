@@ -23,7 +23,7 @@
       "freq": "hourly",
       "interval": 4
     },
-    "description": "Monitor Qdrant collection status and optimizer health. Restart the service automatically when collections enter red status or the optimizer is stuck.",
+    "description": "Monitor Qdrant liveness (/healthz), collection status and optimizer health. Attempt a non-interactive service restart when Qdrant is down, a collection is red or the optimizer is stuck; exit non-zero (restart requires operator) when the restart is denied or fails.",
     "overlap_policy": "skip",
     "timeout_seconds": 60,
     "enabled": true,

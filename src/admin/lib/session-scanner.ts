@@ -17,7 +17,7 @@ import { SESSIONS_DIR } from '../../lib/constants.js';
 import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
 import { mergeUsage, tsToHour } from './bucket-io.js';
 import { detectChannel, registerChannelName } from './channel-mapper.js';
-import { listCCSessionFiles, parseCCLine } from './claude-code-scanner.js';
+import { scanClaudeCodeSessions } from './claude-code-session-scan.js';
 import { normalizeUsage, parseUsageLine } from './usage-parser.js';
 
 /** Result returned by scanAllSessions. */
@@ -184,70 +184,13 @@ export function scanAllSessions(
   }
 
   // ── Claude Code sessions ──
-  const ccFiles = listCCSessionFiles();
-  let ccProcessed = 0;
-  let ccSkipped = 0;
-
-  for (const ccFile of ccFiles) {
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(ccFile.filePath);
-    } catch {
-      continue;
-    }
-
-    const cursor = ccCursors[ccFile.cursorKey] as
-      CursorState[string] | undefined;
-    if (cursor?.byteOffset !== undefined && cursor.byteOffset >= stat.size) {
-      ccSkipped++;
-      continue;
-    }
-
-    const byteOffset = cursor?.byteOffset ?? 0;
-    const content = fs.readFileSync(ccFile.filePath, 'utf8');
-    const allLines = content.split('\n');
-
-    let bytePos = 0;
-    let maxProcessedTs = cursor?.lastTimestamp ?? 0;
-
-    for (const line of allLines) {
-      const lineByteLen = Buffer.byteLength(line, 'utf8') + 1;
-      const lineStart = bytePos;
-      bytePos += lineByteLen;
-
-      if (lineStart < byteOffset) continue;
-      if (!line.trim()) continue;
-
-      const record = parseCCLine(line);
-      if (!record) continue;
-
-      if (record.tsMs < fromMs) continue;
-      if (record.tsMs >= cutoffMs) continue;
-
-      seenModels.add(record.modelKey);
-      const usage = normalizeUsage(
-        {
-          input: record.usage.input,
-          output: record.usage.output,
-          cacheRead: record.usage.cacheRead,
-          cacheWrite: record.usage.cacheWrite,
-        },
-        record.modelKey,
-      );
-      const hour = tsToHour(record.tsMs);
-      mergeUsage(buckets, hour, ccFile.channelKey, record.modelKey, usage);
-
-      if (record.tsMs > maxProcessedTs) {
-        maxProcessedTs = record.tsMs;
-      }
-    }
-
-    ccCursors[ccFile.cursorKey] = {
-      byteOffset: stat.size,
-      lastTimestamp: maxProcessedTs,
-    };
-    ccProcessed++;
-  }
+  const { ccProcessed, ccSkipped } = scanClaudeCodeSessions(
+    fromMs,
+    cutoffMs,
+    ccCursors,
+    buckets,
+    seenModels,
+  );
 
   return {
     buckets,

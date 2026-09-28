@@ -50,24 +50,33 @@ export function currentHourBoundaryMs(): number {
  *
  * Layout: `{base}/{YYYY}/{MM}/{YYYY-MM-DDTHH}.json`
  */
-export function bucketPath(hour: string): string {
+export function bucketPath(
+  hour: string,
+  baseDir: string = TOKEN_METRICS_DIR,
+): string {
   const yyyy = hour.substring(0, 4);
   const mm = hour.substring(5, 7);
-  return path.join(TOKEN_METRICS_DIR, yyyy, mm, hour + '.json');
+  return path.join(baseDir, yyyy, mm, hour + '.json');
 }
 
 /**
  * Read an hourly bucket from disk. Returns null if the file doesn't exist.
  */
-export function readBucket(hour: string): HourlyBucket | null {
-  return readJson<HourlyBucket | null>(bucketPath(hour), null);
+export function readBucket(
+  hour: string,
+  baseDir: string = TOKEN_METRICS_DIR,
+): HourlyBucket | null {
+  return readJson<HourlyBucket | null>(bucketPath(hour, baseDir), null);
 }
 
 /**
  * Write an hourly bucket to disk atomically.
  */
-export function writeBucket(bucket: HourlyBucket): void {
-  writeJsonAtomic(bucketPath(bucket.hour), bucket);
+export function writeBucket(
+  bucket: HourlyBucket,
+  baseDir: string = TOKEN_METRICS_DIR,
+): void {
+  writeJsonAtomic(bucketPath(bucket.hour, baseDir), bucket);
 }
 
 /**
@@ -178,14 +187,18 @@ export function mergeBuckets(
  * - Deep-merge
  * - Write atomically
  *
+ * @param baseDir - Bucket root (defaults to TOKEN_METRICS_DIR)
  * @returns Number of bucket files written
  */
-export function flushBuckets(buckets: Map<string, HourlyBucket>): number {
+export function flushBuckets(
+  buckets: Map<string, HourlyBucket>,
+  baseDir: string = TOKEN_METRICS_DIR,
+): number {
   let written = 0;
   for (const [hour, bucket] of buckets) {
-    const existing = readBucket(hour);
+    const existing = readBucket(hour, baseDir);
     const final = existing ? mergeBuckets(existing, bucket) : bucket;
-    writeBucket(final);
+    writeBucket(final, baseDir);
     written++;
   }
   return written;

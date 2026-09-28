@@ -69,9 +69,60 @@ CLI usage:
 tsx src/admin/token-metrics.ts --from 2026-06-01 --to 2026-06-03
 ```
 
+## OpenClaw 2026.9+: agent SQLite source
+
+When `~/.openclaw/agents/main/agent/openclaw-agent.sqlite` exists, the collector reads OpenClaw usage from it instead of `SESSIONS_DIR`:
+
+- The DB is opened **read-only** (one read transaction, busy timeout). Nothing is ever written to it.
+- The reader is pinned to a schema version (`PRAGMA user_version`, currently **23**). Any other version makes the collector **exit non-zero** with `expected user_version 23, found N`. It never guesses.
+- All schema knowledge lives in `src/admin/lib/openclaw-db/schema-v23.ts` (payload decoding in `schema-v23-payloads.ts`): hot `transcript_events` rows (`event_json` or checksummed zstd `event_zstd`), cold archives (`sessions/cold/*.jsonl.zst` or blob, sha256-verified) and deleted/reset archives (sha256-verified). Legacy `*.jsonl.reset.*` / `*.jsonl.deleted.*` files left in `SESSIONS_DIR` by the migration are read too (`legacy-archives.ts`).
+- Each deleted/reset archive **generation** (`session_transcript_archives` is keyed `(session_id, generation)`, seq restarting at 0) is its own transcript with its own cursor (`session:<id>#<generation>`); generations are never merged by seq. An archive continues from the live `session:<id>` cursor it was archived from (matched by the generation stamped in that cursor, from `transcript_rewrite_watermarks`), so usage already counted live is not counted again. A fully read archive (or legacy archive file) is marked `complete` in the cursor and not re-read on later runs.
+- The DB reader (and `node:sqlite`, which Node gained in 22.5) is imported only when the agent DB exists, so legacy hosts on older Node 22 releases keep collecting from `SESSIONS_DIR`.
+- Channel keys come from the session's **recorded metadata** (`channel-from-meta.ts`, names loaded by `schema-v23-meta.ts`): the session key (`session_windows`, or `session_transcript_archives` for deleted/reset sessions), plus names from `session_nodes` (`groupChannel`, `displayName`, `delivery.origin.label`, `label`, parent session) and `conversations`. This gives `slack:channel:#name` (or the upper-case channel id when no name is recorded), `slack:dm:<person>`, `cron:<label>` and `telegram:<kind>:<name>`.
+- **Subagents roll up to the channel that spawned them** (`subagent-rollup.ts`). The parent chain (`session_nodes.parent_session_key` / `spawnedBy`) is followed transitively to the root: a Slack channel/DM, Telegram or cron root gets the subagent's usage. Under a non-channel root (`agent:main:main`, recovered) the topmost subagent names the bucket: runner workers (label `worker-<job>`, the first 8 characters of the job id) become `runner:<job>`, other subagents keep `subagent:label:<label>` (`meta-<phase>` for meta labels). If the chain can't be resolved (no linkage, a deleted subagent parent, a cycle), the subagent keeps its own label-based name. A deleted Slack parent still resolves from its session key.
+- The legacy `detectChannel` text rules (first 50 events) are used only when metadata is absent or doesn't identify the channel, e.g. `agent:main:main`, recovered sessions and legacy archive files. 2026.9 injects runtime-context text into transcripts, which those rules used to misread (`slack:dm:<name>-approved-executables-…`), so the DM rule now stops at the end of the line. Every key has its whitespace collapsed and trailing punctuation stripped (no more `subagent:repo:…/jeeves-tools.`).
+- Slack DMs whose session recorded no counterpart name (`slack:dm:<USERID>`) are named from `slack-dm-names.json` (beside the buckets), then the Slack poller's cached user map (`src/slack/lib/users.json`, read-only), then the gateway `message` tool (`member-info`); a looked-up name is cached. If nothing resolves the id key is kept.
+- Bucket files keep exactly the same format.
+- The cursor is `(transcript, seq)`, stored in runner state under `cursors-openclaw-db`. Usage in the still-open hour stops that transcript's cursor, so it's counted on a later run and never dropped. Nothing is counted twice.
+- With **no stored DB cursor**, the collector refuses to collect OpenClaw usage and exits non-zero, because counting from zero would double count history. Claude Code collection still runs.
+- `recalculate-token-metrics.ts` refuses to run on a DB host. Use `regenerate-token-metrics.ts` instead.
+
+### Regenerate
+
+```bash
+# scratch (never touches runner state or the live store; point TOKEN_METRICS_DIR at a dir holding a copied token-rates.json)
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --out /tmp/regen
+# live: rebuild [from, last closed hour), back up + replace buckets, REPLACE the DB cursor (bootstrap / full rebuild)
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --dry-run
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z
+# live: rebuild a closed range from already-counted events (OpenClaw seq <= DB cursor,
+# Claude Code bytes before the CC cursor); DB and CC cursors untouched
+tsx src/admin/regenerate-token-metrics.ts --from 2026-09-25T00:00:00Z --to 2026-09-26T00:00:00Z
+```
+
+Pause the `collect-token-metrics` job while a live regeneration runs.
+
+`--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants/token-metrics.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
+
+### Switching a host to the DB reader
+
+1. Find the 2026.9 upgrade time: the OpenClaw package install time, `schema_meta.updated_at` for `meta_key = 'primary'`, or `openclaw.json.pre-*` backups.
+2. Pick `--from` = the upgrade hour (floor to the hour), and set `OPENCLAW_UPGRADE_CUTOFF` to it. The JSONL collector wrote every bucket before that hour.
+3. Run a scratch regeneration (`--out`, `--allow-pre-upgrade`) from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
+4. Dry-run, then run the live regeneration from the upgrade hour. This bootstraps the cursor.
+
+### Future schema changes (upgrade runbook step)
+
+When OpenClaw bumps the agent schema, the collector exits non-zero naming the expected and found versions. Then:
+
+1. Add `src/admin/lib/openclaw-db/schema-vNN.ts` **beside** `schema-v23.ts` (don't edit v23). Implement the same `OpenClawDbSchema` contract and register it in `open-agent-db.ts`.
+2. Add a fixture and tests that use the real vNN DDL.
+3. Verify the overlap: scratch-regenerate from before the schema upgrade and compare pre-upgrade days with the live store. They must match, apart from explained differences.
+4. Regenerate the live store from the schema-upgrade hour (dry run first). The cursor is keyed by transcript and seq, so if vNN keeps seq numbering, the existing cursor stays valid. If it doesn't, the full rebuild replaces it.
+
 ## How to Safely Recalculate
 
-Use `recalculate-token-metrics.ts` when bucket data needs correction (e.g., after a rate card fix, a collector bug, or corrupted bucket files).
+On OpenClaw 2026.9+ hosts (agent DB present) use `regenerate-token-metrics.ts` (above). On legacy hosts, use `recalculate-token-metrics.ts` when bucket data needs correction (e.g., after a rate card fix, a collector bug, or corrupted bucket files).
 
 ### Dry run first
 

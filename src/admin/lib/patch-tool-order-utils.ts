@@ -14,14 +14,33 @@ export const TOOL_ORDER_PREFILTER = 'toolOrder';
 /** Every `toolOrder = [` assignment (same shape parseToolOrder matches). */
 const TOOL_ORDER_SITE = /toolOrder\s*=\s*\[/g;
 
+/** Matches a single- or double-quoted string literal token. */
+const QUOTED = /^(["'])(.*)\1$/;
+
+/**
+ * One toolOrder element: `raw` is the source token exactly as written
+ * (a string literal or an identifier such as `AUTOMATIONS_TOOL_NAME`);
+ * `name` is the unquoted form used for comparison.
+ */
+interface ToolOrderEntry {
+  raw: string;
+  name: string;
+}
+
+/** Quote a tool name for insertion as a new string-literal entry. */
+export function quoteTool(name: string): string {
+  return `"${name}"`;
+}
+
 /**
  * Parse the toolOrder array from file content.
- * Returns the full match string, any declaration keyword prefix, and the
- * parsed tool names.
+ * Returns the full match string, any declaration keyword prefix, the raw
+ * entries (verbatim tokens plus unquoted names), and the tool names.
  */
 export function parseToolOrder(content: string): {
   match: string;
   prefix: string;
+  entries: ToolOrderEntry[];
   tools: string[];
 } | null {
   // Capture an optional declaration keyword (const/let/var) before toolOrder.
@@ -31,21 +50,32 @@ export function parseToolOrder(content: string): {
   if (!m) return null;
 
   const prefix = m[1] ? `${m[1]} ` : '';
-  const tools = m[2]
+  const entries = m[2]
     .split(',')
-    .map((s) => s.trim().replace(/^["']|["']$/g, ''))
-    .filter(Boolean);
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((raw) => ({ raw, name: QUOTED.exec(raw)?.[2] ?? raw }));
 
-  return { match: m[0], prefix, tools };
+  return {
+    match: m[0],
+    prefix,
+    entries,
+    tools: entries.map((e) => e.name),
+  };
 }
 
 /**
- * Build the patched toolOrder array string, preserving the original
- * formatting (tab-indented, one tool per line).
+ * Build the patched toolOrder array string from raw source tokens,
+ * written verbatim (tab-indented, one token per line). Callers quote
+ * new entries with {@link quoteTool}; existing tokens pass through as-is
+ * so identifier entries stay identifiers.
  */
-export function buildToolOrderString(prefix: string, tools: string[]): string {
-  const entries = tools.map((t) => `\t\t"${t}"`).join(',\n');
-  return `${prefix}toolOrder = [\n${entries}\n\t]`;
+export function buildToolOrderString(
+  prefix: string,
+  tokens: readonly string[],
+): string {
+  const body = tokens.map((t) => `\t\t${t}`).join(',\n');
+  return `${prefix}toolOrder = [\n${body}\n\t]`;
 }
 
 /**
@@ -84,8 +114,8 @@ export function evaluateToolOrderPatch(
     return { status: 'already-patched', line, snippet: parsed.match };
   }
 
-  const cleaned = parsed.tools.filter((t) => !toolsToInsert.includes(t));
-  const anchor = cleaned.indexOf(insertBefore);
+  const cleaned = parsed.entries.filter((e) => !toolsToInsert.includes(e.name));
+  const anchor = cleaned.findIndex((e) => e.name === insertBefore);
   if (anchor === -1) {
     return {
       status: 'ambiguous',
@@ -93,10 +123,11 @@ export function evaluateToolOrderPatch(
     };
   }
 
+  const raws = cleaned.map((e) => e.raw);
   const after = buildToolOrderString(parsed.prefix, [
-    ...cleaned.slice(0, anchor),
-    ...toolsToInsert,
-    ...cleaned.slice(anchor),
+    ...raws.slice(0, anchor),
+    ...toolsToInsert.map(quoteTool),
+    ...raws.slice(anchor),
   ]);
   return {
     status: 'patch',

@@ -3,8 +3,8 @@
  *
  * Production wiring for {@link runWorkerSlackJob}: dispatches through
  * jeeves-runner's dispatchSession + spawn-worker.ts, reads the worker's
- * final reply back via sessions_history, and does Slack I/O through the
- * gateway `message` tool.
+ * full final reply back via the gateway `chat.history` RPC, and does
+ * Slack I/O through the gateway `message` tool.
  *
  * Flags (from process.argv):
  * - `--dry-run`: dispatch, but print the worker's posts instead of posting;
@@ -14,7 +14,7 @@
  * any gateway call; an invalid config fails the job.
  *
  * Config dependencies: SPAWN_WORKER_PATH (constants.ts); gateway host/port
- * via gateway-client.ts.
+ * via gateway-client.ts; the openclaw CLI via gateway-rpc.ts.
  */
 
 import {
@@ -24,6 +24,7 @@ import {
 
 import { SPAWN_WORKER_PATH } from '../constants.js';
 import { gatewayInvoke } from '../gateway-client.js';
+import { gatewayRpc } from '../gateway-rpc.js';
 import { readWorkerFinalText } from '../worker-output.js';
 import { gatewaySlackIo } from './slack-io.js';
 import {
@@ -63,9 +64,7 @@ export async function dispatchWithSlack(
         SPAWN_WORKER_PATH,
       );
       const finalText =
-        exitCode === 0
-          ? await readWorkerFinalText(stdout, gatewayInvoke)
-          : null;
+        exitCode === 0 ? await readWorkerFinalText(stdout, gatewayRpc) : null;
       return { exitCode, finalText };
     },
   });

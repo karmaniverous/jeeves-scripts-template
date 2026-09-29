@@ -61,6 +61,12 @@ Gateway HTTP client for OpenClaw tool invocation. Depends on `GATEWAY_HOST`, `GA
 - `gatewayInvoke(tool, args, options?)` — invoke an OpenClaw gateway HTTP API tool
 - `unwrapResult(r)` — unwrap result from gateway response
 
+### gateway-rpc.ts
+
+Gateway RPC caller for methods that are not HTTP tools, or whose tool wrapper limits what the RPC allows. Depends on the global openclaw install (`resolve-openclaw-dist.ts`).
+
+- `gatewayRpc(method, params, cliPath?)`: run `openclaw gateway call <method> --json --params <json>` under the current Node binary (no shell) and resolve the result; gateway errors, CLI failures and non-JSON output reject
+
 ### pipeline-config.ts
 
 Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`.
@@ -90,7 +96,7 @@ Single-tenant instances route everything to `CONTENT_DIR` by default.
 
 ### worker-output.ts
 
-Recovers an LLM worker's final reply after `dispatchSession`: it takes the session key from spawn-worker's `WORKER_RESULT` line and reads the last assistant message via the gateway's `sessions_history`. Job scripts use it to verify structured worker results instead of trusting the exit code.
+Recovers an LLM worker's full final reply after `dispatchSession`: it takes the session key from spawn-worker's `WORKER_RESULT` line and reads the last assistant message via the gateway `chat.history` RPC with `maxChars: 500000` (the `sessions_history` tool caps text at 4000 characters, which cut long replies). A reply the gateway still marks as truncated fails with `worker reply truncated by gateway`. Job scripts use it to verify structured worker results instead of trusting the exit code.
 
 ### worker-slack/
 

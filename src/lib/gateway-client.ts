@@ -26,6 +26,12 @@ export interface GatewayInvokeResult {
   error?: { message?: string };
 }
 
+/** Gateway tool invoker ({@link gatewayInvoke} or a test double). */
+export type GatewayInvoker = (
+  tool: string,
+  args: Record<string, unknown>,
+) => Promise<unknown>;
+
 // ── Token loading ───────────────────────────────────────────────────
 
 export function loadGatewayToken(): string | null {

@@ -4,22 +4,28 @@
  * Recover an LLM worker's final reply after a dispatch. spawn-worker.ts
  * only reports the session key (WORKER_RESULT line) on stdout, so the
  * job script reads the final assistant message back through the
- * gateway's sessions_history tool. Job scripts use this to verify the
+ * gateway's `chat.history` RPC. Job scripts use this to verify the
  * worker's structured result instead of trusting its exit code.
  *
- * Config dependencies: none (the gateway invoker is injected).
+ * The reply must arrive whole: the `sessions_history` tool caps each
+ * text block at 4000 characters, which cut long replies (and their
+ * closing `slack-posts` fence). `chat.history` takes a per-request
+ * `maxChars`; a reply the gateway still marks as truncated is an error.
+ *
+ * Config dependencies: none (the gateway RPC caller is injected).
  */
 
+import type { GatewayRpc } from './gateway-rpc.js';
 import { parseResultLine } from './spawn-worker.js';
-
-/** Gateway tool invoker (see gateway-client.ts gatewayInvoke). */
-export type GatewayInvoker = (
-  tool: string,
-  args: Record<string, unknown>,
-) => Promise<unknown>;
 
 /** Number of trailing history messages to fetch. */
 const HISTORY_LIMIT = 20;
+
+/** Largest per-message text limit `chat.history` accepts (its schema max). */
+export const HISTORY_MAX_CHARS = 500_000;
+
+/** Text `chat.history` substitutes for an oversized message. */
+const OMITTED_PLACEHOLDER = '[chat.history omitted: message too large]';
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
@@ -54,52 +60,72 @@ function messageText(content: unknown): string {
     .join('\n');
 }
 
-/**
- * Extract the text of the last assistant message that has any text.
- *
- * @param messages - sessions_history messages (oldest first).
- * @returns The final assistant text, or null when there is none.
- */
-export function extractFinalAssistantText(messages: unknown): string | null {
+/** The last assistant message that has any text, with that text. */
+interface FinalAssistant {
+  message: Record<string, unknown>;
+  text: string;
+}
+
+function findFinalAssistant(messages: unknown): FinalAssistant | null {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg: unknown = messages[i];
     if (!isRecord(msg) || msg['role'] !== 'assistant') continue;
     const text = messageText(msg['content']).trim();
-    if (text) return text;
+    if (text) return { message: msg, text };
   }
   return null;
 }
 
-/** Pull the messages array out of a sessions_history tool result. */
-function historyMessages(result: unknown): unknown {
-  if (!isRecord(result)) return undefined;
-  const details = result['details'];
-  if (isRecord(details) && Array.isArray(details['messages'])) {
-    return details['messages'];
+/**
+ * Extract the text of the last assistant message that has any text.
+ *
+ * @param messages - History messages (oldest first).
+ * @returns The final assistant text, or null when there is none.
+ */
+export function extractFinalAssistantText(messages: unknown): string | null {
+  return findFinalAssistant(messages)?.text ?? null;
+}
+
+/** Why the gateway cut this message, or null when it arrived whole. */
+function truncationReason({ message, text }: FinalAssistant): string | null {
+  const meta = message['__openclaw'];
+  if (isRecord(meta) && meta['truncated'] === true) {
+    return typeof meta['reason'] === 'string' ? meta['reason'] : 'truncated';
   }
-  return result['messages'];
+  return text.includes(OMITTED_PLACEHOLDER) ? 'message too large' : null;
 }
 
 /**
  * Read the worker's final reply for a completed dispatch.
  *
  * @param stdout - Captured spawn-worker stdout.
- * @param invoke - Gateway tool invoker.
- * @returns The final assistant text, or null when the session key or
+ * @param rpc - Gateway RPC caller (gateway-rpc.ts gatewayRpc).
+ * @returns The full final assistant text, or null when the session key or
  *   any assistant text is missing.
- * @throws Error if the gateway call fails.
+ * @throws Error if the gateway call fails, or `worker reply truncated by
+ *   gateway` if the final reply did not arrive whole.
  */
 export async function readWorkerFinalText(
   stdout: string,
-  invoke: GatewayInvoker,
+  rpc: GatewayRpc,
 ): Promise<string | null> {
   const sessionKey = findWorkerSessionKey(stdout);
   if (!sessionKey) return null;
-  const result = await invoke('sessions_history', {
+  const result = await rpc('chat.history', {
     sessionKey,
     limit: HISTORY_LIMIT,
-    includeTools: false,
+    maxChars: HISTORY_MAX_CHARS,
   });
-  return extractFinalAssistantText(historyMessages(result));
+  const final = findFinalAssistant(
+    isRecord(result) ? result['messages'] : undefined,
+  );
+  if (!final) return null;
+  const reason = truncationReason(final);
+  if (reason) {
+    throw new Error(
+      `worker reply truncated by gateway (session ${sessionKey}: ${reason})`,
+    );
+  }
+  return final.text;
 }

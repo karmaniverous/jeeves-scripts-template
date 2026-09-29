@@ -142,7 +142,7 @@ The `meetings/` domain is the exemplar: three independent extractors (Google Mee
 
 ## Quality Gates
 
-This repo uses the [STAN](https://github.com/karmaniverous/stan) toolchain (ESLint, Prettier, TypeScript, Vitest, Knip, Lefthook).
+Quality tooling: ESLint, Prettier, TypeScript, Vitest, Knip, Lefthook.
 
 | Gate      | Command             | What it checks                  |
 | --------- | ------------------- | ------------------------------- |

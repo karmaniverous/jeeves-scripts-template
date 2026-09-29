@@ -35,7 +35,7 @@ const vitestRecommendedRules: Linter.RulesRecord =
 
 export default [
   {
-    ignores: ['.stan/**/*', 'coverage/**/*', 'node_modules/**/*'],
+    ignores: ['coverage/**/*', 'node_modules/**/*'],
   },
   eslint.configs.recommended,
   {

@@ -6,9 +6,11 @@
  *
  * Usage: echo "task" | tsx spawn-worker.ts --job-id=<id> [--label=<label>] [--thinking=<level>]
  *
- * Spawns a worker session and waits for completion. On completion, fetches
- * session info to get token usage and outputs a JSON summary line for
- * async-wrapper to parse.
+ * Spawns a worker session and waits until the gateway reports its run
+ * ended (session-row `status`); the runner job timeout is the upper
+ * bound. On success, outputs a JSON summary line (token usage from the
+ * session row) for async-wrapper to parse; a failed/killed/timed-out run
+ * exits 1.
  *
  * Output format (last line of stdout):
  *   WORKER_RESULT:{"sessionKey":"...","tokens":12345,"durationMs":123000}
@@ -124,8 +126,14 @@ function sharedGatewayInvoke(
 
 // ── End inlined gateway-client ─────────────────────────────────────
 
-/** If the last message is a toolResult and hasn't updated in this long, treat as completed. */
-const STALE_THRESHOLD_MS = 60_000;
+/**
+ * Log a warning (never a completion) when a running session has not
+ * updated for this long.
+ */
+const QUIET_WARNING_MS = 60_000;
+
+/** Session-row run statuses that mean the run failed. */
+const FAILED_STATUSES = ['failed', 'killed', 'timeout'];
 
 /** Maximum number of spawn retry attempts before giving up. */
 export const SPAWN_MAX_RETRIES = 3;
@@ -155,38 +163,38 @@ interface GatewayResponse {
 
 interface GatewayResult {
   details?: GatewayDetails;
-  messages?: GatewayMessage[];
   sessions?: GatewaySession[];
 }
 
 interface GatewayDetails {
   sessions?: GatewaySession[];
-  messages?: GatewayMessage[];
   childSessionKey?: string;
   sessionKey?: string;
 }
 
-interface GatewaySession {
+/** One `sessions_list` row (only the fields used here). */
+export interface GatewaySession {
   key: string;
+  /** Run status: running | done | failed | killed | timeout. */
+  status?: string;
+  updatedAt?: number;
   totalTokens?: number;
   transcriptPath?: string;
   model?: string;
 }
 
-interface GatewayMessage {
-  role: string;
-  stopReason?: string;
-  timestamp?: number;
-}
-
 export interface SessionStatus {
   completed: boolean;
+  /** Set when the run ended unsuccessfully. */
+  error?: string;
 }
 
-export interface SessionInfo {
-  found: boolean;
-  totalTokens?: number;
-  model?: string;
+/** Injectable I/O for {@link waitForWorkerCompletion}. */
+export interface WaitDeps {
+  findSession: (sessionKey: string) => Promise<GatewaySession | undefined>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+  tokensFor: (session: GatewaySession) => number;
 }
 
 interface WorkerCompletion {
@@ -210,41 +218,22 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 /**
- * Determine whether a session is completed based on its last few messages.
+ * Decide whether a worker run has ended, from the gateway's own run
+ * status on its `sessions_list` row (never from transcript inactivity:
+ * a worker writing a long final reply persists nothing until it ends).
  *
- * - If the last message is an assistant turn with a terminal stopReason
- *   (anything except "toolUse" or "error"), the session is completed.
- * - If the last message is a toolResult older than {@link STALE_THRESHOLD_MS},
- *   the LLM likely never produced a final turn — treat as completed.
+ * - `done` → completed.
+ * - `failed` / `killed` / `timeout` → completed with an error.
+ * - anything else (`running`, not yet projected, row missing) → running.
  */
 export function isSessionCompleted(
-  messages: GatewayMessage[],
-  nowMs: number = Date.now(),
-  staleThresholdMs: number = STALE_THRESHOLD_MS,
+  session: GatewaySession | undefined,
 ): SessionStatus {
-  if (messages.length === 0) return { completed: false };
-
-  const lastMsg = messages[messages.length - 1];
-
-  if (
-    lastMsg.role === 'assistant' &&
-    lastMsg.stopReason &&
-    lastMsg.stopReason !== 'toolUse' &&
-    lastMsg.stopReason !== 'error'
-  ) {
-    return { completed: true };
+  const status = session?.status;
+  if (status === 'done') return { completed: true };
+  if (status && FAILED_STATUSES.includes(status)) {
+    return { completed: true, error: `Worker run ended: status=${status}` };
   }
-
-  if (lastMsg.role === 'toolResult' && lastMsg.timestamp) {
-    const age = nowMs - lastMsg.timestamp;
-    if (age > staleThresholdMs) {
-      console.log(
-        `[${new Date().toISOString()}] Session stale: last toolResult was ${String(Math.round(age / 1000))}s ago — treating as completed`,
-      );
-      return { completed: true };
-    }
-  }
-
   return { completed: false };
 }
 
@@ -352,115 +341,90 @@ function getSessionsDir(): string {
   return path.join(home, '.openclaw', 'agents', 'main', 'sessions');
 }
 
-async function getSessionInfo(
-  sessionKey: string,
-  activeMinutes = 120,
-): Promise<SessionInfo> {
-  try {
-    const result = await invokeGateway('sessions_list', {
-      activeMinutes,
-      limit: 100,
-    });
-
-    const sessions: GatewaySession[] =
-      result.result?.details?.sessions ??
-      result.result?.sessions ??
-      result.sessions ??
-      [];
-    const session = sessions.find((s) => s.key === sessionKey);
-
-    if (!session) {
-      console.log(
-        `[${new Date().toISOString()}] Session not found in ${String(sessions.length)} sessions`,
-      );
-      return { found: false };
-    }
-
-    let totalTokens = session.totalTokens ?? 0;
-    if (session.transcriptPath) {
-      const fullPath = path.isAbsolute(session.transcriptPath)
-        ? session.transcriptPath
-        : path.join(getSessionsDir(), session.transcriptPath);
-      const transcriptTokens = getTokensFromTranscript(fullPath);
-      if (transcriptTokens > 0) totalTokens = transcriptTokens;
-    }
-
-    console.log(
-      `[${new Date().toISOString()}] Session found: totalTokens=${String(totalTokens)}, model=${session.model ?? 'unknown'}`,
-    );
-    return { found: true, totalTokens, model: session.model };
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[${new Date().toISOString()}] Failed to get session info: ${msg}`,
-    );
-    return { found: false };
+/** Resolve a session row's token count (transcript usage preferred). */
+function sessionTokens(session: GatewaySession): number {
+  let totalTokens = session.totalTokens ?? 0;
+  if (session.transcriptPath) {
+    const fullPath = path.isAbsolute(session.transcriptPath)
+      ? session.transcriptPath
+      : path.join(getSessionsDir(), session.transcriptPath);
+    const transcriptTokens = getTokensFromTranscript(fullPath);
+    if (transcriptTokens > 0) totalTokens = transcriptTokens;
   }
+  return totalTokens;
 }
 
-async function checkSessionCompleted(
+/** Fetch one session's `sessions_list` row by exact key. */
+async function findSession(
   sessionKey: string,
-): Promise<SessionStatus> {
-  try {
-    const result = await invokeGateway('sessions_history', {
-      sessionKey,
-      limit: 3,
-      includeTools: true,
-    });
-
-    const messages: GatewayMessage[] =
-      result.result?.details?.messages ?? result.result?.messages ?? [];
-
-    return isSessionCompleted(messages);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[${new Date().toISOString()}] History check failed: ${msg}`);
-    return { completed: false };
-  }
+): Promise<GatewaySession | undefined> {
+  const result = await invokeGateway('sessions_list', {
+    search: sessionKey,
+    limit: 20,
+  });
+  const sessions: GatewaySession[] =
+    result.result?.details?.sessions ??
+    result.result?.sessions ??
+    result.sessions ??
+    [];
+  return sessions.find((s) => s.key === sessionKey);
 }
 
-async function waitForWorkerCompletion(
+const defaultWaitDeps: WaitDeps = {
+  findSession,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now: () => Date.now(),
+  tokensFor: sessionTokens,
+};
+
+/**
+ * Poll the worker session until the gateway reports its run ended. The
+ * runner job timeout (which kills this process) is the upper bound.
+ *
+ * @throws Error when the run ends failed/killed/timeout.
+ */
+export async function waitForWorkerCompletion(
   sessionKey: string,
   startTime: number,
+  deps: WaitDeps = defaultWaitDeps,
 ): Promise<WorkerCompletion> {
   const pollInterval = 5000;
-  const activeMinutes = 120;
 
   // Initial delay to let the session start
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  await deps.sleep(3000);
 
   for (;;) {
+    let session: GatewaySession | undefined;
     try {
-      const status = await checkSessionCompleted(sessionKey);
-
-      if (status.completed) {
-        const durationMs = Date.now() - startTime;
-        console.log(
-          `[${new Date().toISOString()}] Session completed, fetching token count...`,
-        );
-
-        // Small delay to let transcript flush
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const sessionInfo = await getSessionInfo(sessionKey, activeMinutes);
-        console.log(
-          `[${new Date().toISOString()}] Session info: found=${String(sessionInfo.found)} tokens=${String(sessionInfo.totalTokens ?? 0)}`,
-        );
-
-        return {
-          success: true,
-          durationMs,
-          tokens: sessionInfo.totalTokens ?? 0,
-          model: sessionInfo.model,
-        };
-      }
-
-      console.log(`[${new Date().toISOString()}] Session still running...`);
+      session = await deps.findSession(sessionKey);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[${new Date().toISOString()}] Poll failed: ${msg}`);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    const status = isSessionCompleted(session);
+    if (status.error) throw new Error(status.error);
+
+    if (status.completed && session) {
+      const durationMs = deps.now() - startTime;
+      const tokens = deps.tokensFor(session);
+      console.log(
+        `[${new Date().toISOString()}] Session run done: tokens=${String(tokens)}, model=${session.model ?? 'unknown'}`,
+      );
+      return { success: true, durationMs, tokens, model: session.model };
+    }
+
+    const label = session?.status ?? (session ? 'none' : 'not found');
+    const quietMs = session?.updatedAt ? deps.now() - session.updatedAt : 0;
+    const quiet =
+      quietMs > QUIET_WARNING_MS
+        ? ` (warning: no update for ${String(Math.round(quietMs / 1000))}s; still waiting for run end)`
+        : '';
+    console.log(
+      `[${new Date().toISOString()}] Session still running (status: ${label})${quiet}`,
+    );
+
+    await deps.sleep(pollInterval);
   }
 }
 

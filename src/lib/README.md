@@ -96,10 +96,11 @@ Recovers an LLM worker's final reply after `dispatchSession`: it takes the sessi
 
 Job-side Slack I/O for LLM workers. On OpenClaw 2026.9, sub-agent sessions have no `message` tool, so the job script does all Slack work:
 
-- `run.ts`: `dispatchWithSlack(task, dispatchOptions, { reads, posts })` is the production entry point. It supports `--dry-run` (print the posts instead of posting) and `--print-task` (print the TASK, no dispatch).
+- `worker-slack-config.ts`: Zod 4 schema for the job's `{ accountId?, reads?, posts? }` config (each post target carries `editTs?`, the exact message ids the worker may edit, and `pin?`); types are derived with `z.infer`.
+- `run.ts`: `dispatchWithSlack(task, dispatchOptions, { reads, posts })` is the production entry point. It validates the config before any gateway call and supports `--dry-run` (print the posts instead of posting) and `--print-task` (print the TASK, no dispatch).
 - `worker-slack-job.ts`: orchestration with injected deps (read → TASK → dispatch → validate → post/pin/edit).
-- `worker-posts.ts`: the `slack-posts` output contract (a fenced JSON array, never a bare object, of `{channel, text, thread_ts?, pin?, edit_ts?}`; `edit_ts` replaces the text of an existing message and can't be combined with `thread_ts`/`pin`), the worker instructions, and the Slack context formatting (fenced as untrusted data the worker must never follow as instructions).
-- `slack-io.ts`: `read` / `send` / `pin` / `edit` through the gateway `message` tool (`/tools/invoke`).
+- `worker-posts.ts`: the `slack-posts` output contract (a fenced JSON array, never a bare object, of `{channel, text, thread_ts?, pin?, edit_ts?}`; `edit_ts` replaces the text of an existing message and can't be combined with `thread_ts`/`pin`; edits and pins are allowed only where the target's `editTs` / `pin` permit), the worker instructions, and the Slack context formatting (fenced as untrusted data the worker must never follow as instructions).
+- `slack-io.ts`: `read` / `send` / `pin` / `edit` through the gateway `message` tool (`/tools/invoke`). A read response without a valid `messages` array throws (only `messages: []` means an empty channel).
 - `slack-target.ts`: normalizes Slack IDs to `channel:…` / `user:…` targets (the prefix must match the ID family: `channel:` C/G/D, `user:` U/W).
 
 ### spawn-worker.ts

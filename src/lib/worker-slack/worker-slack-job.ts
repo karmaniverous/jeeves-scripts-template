@@ -12,8 +12,9 @@
  * 5. post each message (pin it, or edit an existing message, when asked),
  *    or print the posts in `dryRun` mode.
  *
- * Nothing is posted unless the whole block is valid and every target is
- * allowed.
+ * Nothing is posted unless the whole block is valid and every target,
+ * edit and pin is allowed. The config is validated by the caller at the
+ * dispatch boundary (worker-slack-config.ts, run.ts).
  */
 
 import type { SlackIo } from './slack-io.js';
@@ -25,36 +26,7 @@ import {
   slackOutputInstructions,
   type WorkerPost,
 } from './worker-posts.js';
-
-/** A Slack read made before dispatch. */
-export interface SlackReadSpec {
-  /** Channel/user id or prefixed target. */
-  target: string;
-  /** Label shown to the worker, e.g. `#ops-ceo`. */
-  label: string;
-  /** Messages to read (default 20). */
-  limit?: number;
-  /** Read this thread instead of the channel. */
-  threadTs?: string;
-}
-
-/** A target the worker may post to. */
-export interface SlackPostTarget {
-  /** Channel/user id or prefixed target. */
-  target: string;
-  /** What posts there are for (shown to the worker). */
-  purpose: string;
-}
-
-/** Slack configuration for one job. */
-export interface WorkerSlackConfig {
-  /** Gateway Slack account id (multi-account gateways, e.g. `vc`). */
-  accountId?: string;
-  /** Reads made before dispatch. */
-  reads?: SlackReadSpec[];
-  /** Targets the worker may post to. */
-  posts?: SlackPostTarget[];
-}
+import type { WorkerSlackConfig } from './worker-slack-config.js';
 
 /** Injected side effects and flags. */
 export interface WorkerSlackDeps {
@@ -106,8 +78,8 @@ export async function buildWorkerSlackTask(
     blocks.push({ label: `${where} [${target}]`, messages });
   }
   const posts = (config.posts ?? []).map((p) => ({
+    ...p,
     target: requireSlackTarget(p.target),
-    purpose: p.purpose,
   }));
   return [
     baseTask.trimEnd(),
@@ -164,8 +136,7 @@ export async function runWorkerSlackJob(
   if (exitCode !== 0)
     throw new Error(`Worker exited with code ${String(exitCode)}`);
 
-  const allowed = (config.posts ?? []).map((p) => requireSlackTarget(p.target));
-  const posts = parseWorkerPosts(finalText, allowed);
+  const posts = parseWorkerPosts(finalText, config.posts ?? []);
 
   let posted = 0;
   for (const post of posts) {

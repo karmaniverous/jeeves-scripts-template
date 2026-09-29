@@ -32,7 +32,7 @@ import { runScript } from '@karmaniverous/jeeves';
 import { CONTENT_DIR } from '../lib/constants.js';
 import { tryGetRef } from '../lib/pipeline-config.js';
 import { dispatchWithSlack } from '../lib/worker-slack/run.js';
-import type { WorkerSlackConfig } from '../lib/worker-slack/worker-slack-job.js';
+import type { WorkerSlackConfig } from '../lib/worker-slack/worker-slack-config.js';
 
 const JOB_ID = 'generate-social-posts';
 

@@ -17,6 +17,8 @@
  * passed on every call.
  */
 
+import { z } from 'zod';
+
 import type { GatewayInvoker } from '../worker-output.js';
 
 /** A Slack message as seen by the job. */
@@ -96,25 +98,43 @@ export function assertOk(action: string, result: unknown): unknown {
   return result;
 }
 
-/** Parse Slack messages from a read result, oldest first. */
+/** The Slack message fields the job relies on; other fields pass through. */
+const rawMessagesSchema = z.array(
+  z.looseObject({
+    ts: z.string().min(1),
+    text: z.string().optional(),
+    user: z.string().optional(),
+    thread_ts: z.string().optional(),
+  }),
+);
+
+/**
+ * Parse Slack messages from a read result, oldest first.
+ *
+ * @param result - `read` tool result.
+ * @returns The messages; `[]` only for a valid `messages: []` response.
+ * @throws Error when no payload carries a `messages` array or a message
+ *   lacks a string `ts` (changed/invalid response shape). Failing here
+ *   fails the job before dispatch instead of briefing on missing context.
+ */
 export function parseMessages(result: unknown): SlackMessage[] {
-  const raw = toolPayloads(result)
-    .map((p) => p['messages'])
-    .find((m) => Array.isArray(m));
-  if (!Array.isArray(raw)) return [];
-  const out: SlackMessage[] = [];
-  for (const m of raw as unknown[]) {
-    if (!isRecord(m) || typeof m['ts'] !== 'string') continue;
-    const msg: SlackMessage = {
-      ts: m['ts'],
-      text: typeof m['text'] === 'string' ? m['text'] : '',
-    };
-    if (typeof m['user'] === 'string') msg.user = m['user'];
-    if (typeof m['thread_ts'] === 'string' && m['thread_ts'] !== m['ts'])
-      msg.threadTs = m['thread_ts'];
-    out.push(msg);
-  }
-  return out.sort((a, b) => Number(a.ts) - Number(b.ts));
+  const payload = toolPayloads(result).find((p) => 'messages' in p);
+  if (!payload)
+    throw new Error('Slack read returned no `messages` field (invalid shape)');
+  const parsed = rawMessagesSchema.safeParse(payload['messages']);
+  if (!parsed.success)
+    throw new Error(
+      `Slack read returned an invalid \`messages\` shape: ${parsed.error.message}`,
+    );
+  return parsed.data
+    .map((m) => {
+      const msg: SlackMessage = { ts: m.ts, text: m.text ?? '' };
+      if (m.user !== undefined) msg.user = m.user;
+      if (m.thread_ts !== undefined && m.thread_ts !== m.ts)
+        msg.threadTs = m.thread_ts;
+      return msg;
+    })
+    .sort((a, b) => Number(a.ts) - Number(b.ts));
 }
 
 function idIn(payload: Record<string, unknown>, depth = 0): string | undefined {

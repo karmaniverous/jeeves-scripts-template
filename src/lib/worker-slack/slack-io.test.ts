@@ -32,7 +32,7 @@ const READ = toolResult({
       text: 'reply',
       thread_ts: '1790590000.000100',
     },
-    { type: 'message', text: 'no ts' },
+    { type: 'message', ts: '1790595500.000002', bot_id: 'B1' },
   ],
 });
 
@@ -42,7 +42,12 @@ describe('parseMessages', () => {
       { ts: '1790590000.000100', user: 'U1', text: 'older' },
       { ts: '1790595302.365459', user: 'U2', text: 'newer' },
       { ts: '1790595400.000001', text: 'reply', threadTs: '1790590000.000100' },
+      { ts: '1790595500.000002', text: '' },
     ]);
+  });
+
+  it('returns [] only for a valid empty channel', () => {
+    expect(parseMessages(toolResult({ ok: true, messages: [] }))).toEqual([]);
   });
 
   it('accepts messages in details', () => {
@@ -51,11 +56,26 @@ describe('parseMessages', () => {
     ).toEqual([{ ts: '1.1', text: 'x' }]);
   });
 
-  it('returns [] for unexpected shapes', () => {
-    expect(parseMessages(null)).toEqual([]);
-    expect(
-      parseMessages({ content: [{ type: 'text', text: 'not json' }] }),
-    ).toEqual([]);
+  it.each([
+    ['null', null],
+    ['non-JSON text', { content: [{ type: 'text', text: 'not json' }] }],
+    ['ok without messages', toolResult({ ok: true, channelId: 'C1' })],
+    ['renamed field', toolResult({ ok: true, items: [] })],
+  ])('throws when the messages field is missing (%s)', (_name, result) => {
+    expect(() => parseMessages(result)).toThrow(/no `messages` field/);
+  });
+
+  it.each([
+    ['an object', { ts: '1.1' }],
+    ['a string', 'hello'],
+    ['null', null],
+    ['a message without ts', [{ text: 'x' }]],
+    ['a numeric ts', [{ ts: 1.1, text: 'x' }]],
+    ['a non-object message', ['x']],
+  ])('throws when messages is %s', (_name, messages) => {
+    expect(() => parseMessages(toolResult({ ok: true, messages }))).toThrow(
+      /invalid `messages` shape/,
+    );
   });
 });
 
@@ -86,7 +106,7 @@ describe('gatewaySlackIo', () => {
         limit: 5,
         threadTs: '1790590000.000100',
       }),
-    ).resolves.toHaveLength(3);
+    ).resolves.toHaveLength(4);
     expect(invoke).toHaveBeenCalledWith('message', {
       action: 'read',
       channel: 'slack',
@@ -120,8 +140,18 @@ describe('gatewaySlackIo', () => {
     });
   });
 
-  it('passes the account id on every call and edits', async () => {
+  it('fails a read whose response has no messages array', async () => {
     const invoke = vi.fn().mockResolvedValue(toolResult({ ok: true }));
+    await expect(
+      gatewaySlackIo(invoke).read('channel:C0B2Z734KSP'),
+    ).rejects.toThrow(/no `messages` field/);
+  });
+
+  it('passes the account id on every call and edits', async () => {
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce(toolResult({ ok: true, messages: [] }))
+      .mockResolvedValue(toolResult({ ok: true }));
     const io = gatewaySlackIo(invoke, 'vc');
     await io.read('channel:C0B2Z734KSP');
     await io.edit('channel:C0B2Z734KSP', '1789.1', 'v2');

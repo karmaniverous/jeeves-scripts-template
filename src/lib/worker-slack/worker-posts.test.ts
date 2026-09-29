@@ -7,11 +7,16 @@ import {
   UNTRUSTED_BEGIN,
   UNTRUSTED_END,
 } from './worker-posts.js';
+import type { SlackPostTarget } from './worker-slack-config.js';
 
 const OPS = 'channel:C0B2Z734KSP';
 const SAM = 'user:U09JC3DPCS1';
 const block = (json: string, fence = '```') =>
   `Agenda written to j:/veterancrowd/ops/ceo/agenda.md.\n\n${fence}slack-posts\n${json}\n${fence}\n`;
+const allow = (
+  target: string,
+  ops: Partial<SlackPostTarget> = {},
+): SlackPostTarget => ({ target, purpose: 'p', ...ops });
 
 describe('parseWorkerPosts', () => {
   it('parses posts and normalizes targets', () => {
@@ -21,19 +26,23 @@ describe('parseWorkerPosts', () => {
         { channel: SAM, thread_ts: '1790595302.365459', text: 'FYI' },
       ]),
     );
-    expect(parseWorkerPosts(text, [OPS, SAM])).toEqual([
+    expect(
+      parseWorkerPosts(text, [allow(OPS, { pin: true }), allow(SAM)]),
+    ).toEqual([
       { channel: OPS, text: 'Agenda for today', pin: true },
       { channel: SAM, thread_ts: '1790595302.365459', text: 'FYI' },
     ]);
   });
 
   it('accepts an empty array', () => {
-    expect(parseWorkerPosts(block('[]'), [OPS])).toEqual([]);
+    expect(parseWorkerPosts(block('[]'), [allow(OPS)])).toEqual([]);
   });
 
   it('rejects a bare object: the contract requires a JSON array', () => {
     expect(() =>
-      parseWorkerPosts(block('{"channel":"C0B2Z734KSP","text":"x"}'), [OPS]),
+      parseWorkerPosts(block('{"channel":"C0B2Z734KSP","text":"x"}'), [
+        allow(OPS),
+      ]),
     ).toThrow(/must be a JSON array/);
   });
 
@@ -41,13 +50,13 @@ describe('parseWorkerPosts', () => {
     expect(
       parseWorkerPosts(
         block('[{"channel":"C0B2Z734KSP","text":"v2","edit_ts":"1789.1"}]'),
-        [OPS],
+        [allow(OPS, { editTs: ['1789.1'] })],
       ),
     ).toEqual([{ channel: OPS, text: 'v2', edit_ts: '1789.1' }]);
   });
 
   it('accepts tilde fences', () => {
-    expect(parseWorkerPosts(block('[]', '~~~~'), [OPS])).toEqual([]);
+    expect(parseWorkerPosts(block('[]', '~~~~'), [allow(OPS)])).toEqual([]);
   });
 
   it.each([
@@ -88,11 +97,49 @@ describe('parseWorkerPosts', () => {
       /not an allowed target/,
     ],
   ])('rejects %s', (_name, text, error) => {
-    expect(() => parseWorkerPosts(text, [OPS])).toThrow(error);
+    expect(() => parseWorkerPosts(text, [allow(OPS)])).toThrow(error);
+  });
+
+  describe('operation allowlist', () => {
+    const edit = (ts: string) =>
+      block(`[{"channel":"C0B2Z734KSP","text":"v2","edit_ts":"${ts}"}]`);
+    const pin = block('[{"channel":"C0B2Z734KSP","text":"x","pin":true}]');
+
+    it('rejects an edit of a message that is not explicitly allowed', () => {
+      expect(() =>
+        parseWorkerPosts(edit('1790.9'), [allow(OPS, { editTs: ['1789.1'] })]),
+      ).toThrow(/edit message 1790.9 in channel:C0B2Z734KSP.*not an allowed/);
+    });
+
+    it('rejects any edit on a target without allowed edit ids', () => {
+      expect(() => parseWorkerPosts(edit('1789.1'), [allow(OPS)])).toThrow(
+        /not an allowed edit/,
+      );
+    });
+
+    it('does not let one target authorize edits on another', () => {
+      expect(() =>
+        parseWorkerPosts(edit('1789.1'), [
+          allow(OPS),
+          allow(SAM, { editTs: ['1789.1'] }),
+        ]),
+      ).toThrow(/not an allowed edit/);
+    });
+
+    it('rejects a pin unless the target allows pins', () => {
+      expect(() => parseWorkerPosts(pin, [allow(OPS)])).toThrow(
+        /pin a message in channel:C0B2Z734KSP/,
+      );
+      expect(parseWorkerPosts(pin, [allow(OPS, { pin: true })])).toHaveLength(
+        1,
+      );
+    });
   });
 
   it('rejects a null reply', () => {
-    expect(() => parseWorkerPosts(null, [OPS])).toThrow(/no `slack-posts`/);
+    expect(() => parseWorkerPosts(null, [allow(OPS)])).toThrow(
+      /no `slack-posts`/,
+    );
   });
 });
 
@@ -104,6 +151,18 @@ describe('slackOutputInstructions', () => {
     expect(text).toMatch(/do not call the message tool or any Slack tool/);
     expect(text).toContain('```slack-posts');
     expect(text).toContain(`- ${OPS}: the agenda (pin it)`);
+  });
+
+  it('lists the edits and pins each target permits', () => {
+    const text = slackOutputInstructions([
+      allow(OPS, { editTs: ['1789.1'], pin: true }),
+      allow(SAM),
+    ]);
+    expect(text).toContain(
+      `- ${OPS}: p (may edit only message(s) 1789.1; may pin)`,
+    );
+    expect(text).toContain(`- ${SAM}: p\n`.trimEnd());
+    expect(text).not.toContain(`${SAM}: p (`);
   });
 
   it('says there are no targets when none are allowed', () => {

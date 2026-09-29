@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SlackIo } from './slack-io.js';
-import {
-  runWorkerSlackJob,
-  type WorkerSlackConfig,
-} from './worker-slack-job.js';
+import type { WorkerSlackConfig } from './worker-slack-config.js';
+import { runWorkerSlackJob } from './worker-slack-job.js';
 
 const CONFIG: WorkerSlackConfig = {
   reads: [{ target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 10 }],
-  posts: [{ target: 'C0B2Z734KSP', purpose: 'the agenda (pin it)' }],
+  posts: [
+    {
+      target: 'C0B2Z734KSP',
+      purpose: 'the agenda (pin it)',
+      pin: true,
+      editTs: ['1789000000.000100'],
+    },
+  ],
 };
 
 const FENCE = '`'.repeat(3);
@@ -64,7 +69,9 @@ describe('runWorkerSlackJob', () => {
     const task = dispatch.mock.calls[0][0] as string;
     expect(task.startsWith('Build the agenda.')).toBe(true);
     expect(task).toContain('U1: Add hiring to the agenda');
-    expect(task).toContain('- channel:C0B2Z734KSP: the agenda (pin it)');
+    expect(task).toContain(
+      '- channel:C0B2Z734KSP: the agenda (pin it) (may edit only message(s) 1789000000.000100; may pin)',
+    );
     expect(task).toMatch(/do not call the message tool/);
 
     expect(slack.send).toHaveBeenNthCalledWith(
@@ -168,6 +175,25 @@ describe('runWorkerSlackJob', () => {
       }),
     ).rejects.toThrow(/not an allowed target/);
     expect(slack.send).not.toHaveBeenCalled();
+  });
+
+  it('posts nothing when an edit is not explicitly allowed', async () => {
+    const slack = mockSlack();
+    await expect(
+      runWorkerSlackJob('T', CONFIG, {
+        slack,
+        print: vi.fn(),
+        dispatch: vi.fn().mockResolvedValue({
+          exitCode: 0,
+          finalText: reply([
+            { channel: 'C0B2Z734KSP', text: 'ok' },
+            { channel: 'C0B2Z734KSP', edit_ts: '1790000000.000999', text: 'x' },
+          ]),
+        }),
+      }),
+    ).rejects.toThrow(/not an allowed edit/);
+    expect(slack.send).not.toHaveBeenCalled();
+    expect(slack.edit).not.toHaveBeenCalled();
   });
 
   it('fails when the worker returns no slack-posts block', async () => {

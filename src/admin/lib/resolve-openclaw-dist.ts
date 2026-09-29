@@ -34,6 +34,29 @@ function tryNpmRoot(): string | null {
   return null;
 }
 
+/** Parse `vMAJOR.MINOR.PATCH` into numeric parts (non-numeric parts become 0). */
+function parseVersion(dir: string): number[] {
+  return dir
+    .replace(/^v/, '')
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+}
+
+/**
+ * Comparator ordering nvm version directory names newest first by numeric
+ * semver (so `v24.10.0` precedes `v24.9.0`, and `v24.0.0` precedes `v9.0.0`).
+ */
+export function compareNodeVersionsDesc(a: string, b: string): number {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 /**
  * Scan nvm node version directories for an openclaw global install.
  * Checks NVM_DIR env var, then falls back to ~/.nvm.
@@ -57,12 +80,11 @@ function tryNvmFallback(): string | null {
     if (fs.existsSync(distDir)) return distDir;
   }
 
-  // Scan version directories (newest first by sort order)
+  // Scan version directories, newest first by numeric semver
   const versions = fs
     .readdirSync(versionsDir)
     .filter((d) => d.startsWith('v'))
-    .sort()
-    .reverse();
+    .sort(compareNodeVersionsDesc);
 
   for (const version of versions) {
     const distDir = path.join(

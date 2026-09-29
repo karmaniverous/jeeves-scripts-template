@@ -68,4 +68,31 @@ describe('parseWorkerSlackConfig', () => {
       /Invalid worker-slack config/,
     );
   });
+
+  it.each([
+    ['bare id then channel: prefix', 'C0B2Z734KSP', 'channel:C0B2Z734KSP'],
+    ['channel: prefix then bare id', 'channel:C0B2Z734KSP', 'c0b2z734ksp'],
+    ['bare user id then user: prefix', 'U0ABCDEFGH', 'user:U0ABCDEFGH'],
+  ])('rejects duplicate post targets (%s)', (_name, first, second) => {
+    const config = {
+      posts: [
+        { target: first, purpose: 'a', editTs: ['1789.1'] },
+        { target: second, purpose: 'b', pin: true },
+      ],
+    };
+    expect(() => parseWorkerSlackConfig(config)).toThrow(
+      /Duplicate post target (channel|user):[A-Z0-9]+ \("/,
+    );
+  });
+
+  it('accepts distinct post targets', () => {
+    const config = {
+      posts: [
+        { target: 'C0B2Z734KSP', purpose: 'a' },
+        { target: 'channel:C0B2Z734KSQ', purpose: 'b' },
+        { target: 'user:U0ABCDEFGH', purpose: 'c' },
+      ],
+    };
+    expect(parseWorkerSlackConfig(config)).toEqual(config);
+  });
 });

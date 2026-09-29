@@ -64,8 +64,28 @@ const workerSlackConfigSchema = z
       .optional(),
     /** Reads made before dispatch. */
     reads: z.array(slackReadSpecSchema).optional(),
-    /** Targets the worker may post to. */
-    posts: z.array(slackPostTargetSchema).optional(),
+    /**
+     * Targets the worker may post to. Each normalized target may appear
+     * once: aliases (`C…` vs `channel:C…`) would otherwise overwrite each
+     * other's `editTs`/`pin` permissions order-dependently.
+     */
+    posts: z
+      .array(slackPostTargetSchema)
+      .superRefine((posts, ctx) => {
+        const seen = new Set<string>();
+        posts.forEach(({ target }, index) => {
+          const normalized = normalizeSlackTarget(target);
+          if (normalized === null) return;
+          if (seen.has(normalized))
+            ctx.addIssue({
+              code: 'custom',
+              path: [index, 'target'],
+              message: `Duplicate post target ${normalized} ("${target}")`,
+            });
+          seen.add(normalized);
+        });
+      })
+      .optional(),
   })
   .strict();
 

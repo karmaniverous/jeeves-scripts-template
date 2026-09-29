@@ -25,7 +25,7 @@ To activate a dispatcher:
 On OpenClaw 2026.9, sub-agent sessions (runner LLM workers) have **no `message` tool**, so a worker cannot read or post Slack. Every dispatcher that needs Slack uses `dispatchWithSlack` (`../lib/worker-slack/`):
 
 1. **Reads:** before dispatch, the script reads the configured channels/threads through the gateway `message` tool and appends them to the TASK under "Slack context".
-2. **Posts:** the TASK ends with the output contract. The worker returns its intended posts in one fenced `slack-posts` block (JSON array of `{channel, text, thread_ts?, pin?, edit_ts?}`, `[]` for none; `edit_ts` replaces an existing message's text). The script validates the whole block, checking every target against the job's allowlist, then posts (and pins) them itself. An invalid block or a disallowed target posts nothing and fails the job.
+2. **Posts:** the TASK ends with the output contract. The worker returns its intended posts in one fenced `slack-posts` block (JSON array of `{channel, text, thread_ts?, pin?, edit_ts?}`, `[]` for none; `edit_ts` replaces an existing message's text). The script validates the whole block, checking every target against the job's allowlist and every operation against that target's permissions (`editTs`: the exact message ids it may edit; `pin: true`: it may pin), then posts (and pins / edits) them itself. An invalid block, a disallowed target, or an edit/pin the target does not permit posts nothing and fails the job. The Slack config itself is validated with a Zod schema (`worker-slack-config.ts`) before any gateway call, and a read whose response lacks a valid `messages` array fails the job instead of being treated as an empty channel.
 3. **Flags:** `--dry-run` dispatches but prints the posts instead of posting. `--print-task` reads Slack, prints the full TASK and stops without dispatching.
 
 Pass `accountId` in the Slack config when the gateway has several Slack accounts (e.g. `vc`). TASK text must never tell the worker to use the message tool; describe _what_ to post and _where_ (by purpose) and let the contract do the rest. Targets are Slack IDs (`C…`, `G…`, `D…`, `U…`), never `#names`.
@@ -36,7 +36,14 @@ await dispatchWithSlack(
   { jobId: 'my-job', thinking: 'low', timeout: 600 },
   {
     reads: [{ target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 30 }],
-    posts: [{ target: 'C0B2Z734KSP', purpose: "today's agenda (pin it)" }],
+    posts: [
+      {
+        target: 'C0B2Z734KSP',
+        purpose: "today's agenda (pin it), plus the quick-links edit",
+        pin: true,
+        editTs: ['1789000000.000100'], // the pinned quick-links message only
+      },
+    ],
   },
 );
 ```

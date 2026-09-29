@@ -23,40 +23,29 @@
 import { z } from 'zod';
 
 import type { SlackMessage } from './slack-io.js';
-import { normalizeSlackTarget } from './slack-target.js';
-
-/** One post the worker wants the job to make. */
-export interface WorkerPost {
-  /** Normalized target (`channel:C…` / `user:U…`). */
-  channel: string;
-  /** Reply in this thread. */
-  thread_ts?: string;
-  /** Message text (Slack mrkdwn). */
-  text: string;
-  /** Pin the posted message. */
-  pin?: boolean;
-  /** Edit this existing message (ts) instead of posting a new one. */
-  edit_ts?: string;
-}
+import { normalizeSlackTarget, requireSlackTarget } from './slack-target.js';
+import { type SlackPostTarget, slackTsSchema } from './worker-slack-config.js';
 
 const postSchema = z
   .object({
+    /** Target (normalized to `channel:C…` / `user:U…` after parsing). */
     channel: z.string().min(1),
-    thread_ts: z
-      .string()
-      .regex(/^\d+\.\d+$/)
-      .optional(),
+    /** Reply in this thread. */
+    thread_ts: slackTsSchema.optional(),
+    /** Message text (Slack mrkdwn). */
     text: z.string().trim().min(1).max(39_000),
+    /** Pin the posted message (only where the target permits pins). */
     pin: z.boolean().optional(),
-    edit_ts: z
-      .string()
-      .regex(/^\d+\.\d+$/)
-      .optional(),
+    /** Edit this existing message (ts); must be an allowed edit ts. */
+    edit_ts: slackTsSchema.optional(),
   })
   .strict()
   .refine((p) => !(p.edit_ts && (p.thread_ts || p.pin)), {
     message: 'edit_ts cannot be combined with thread_ts or pin',
   });
+
+/** One post the worker wants the job to make (schema is the source). */
+export type WorkerPost = z.infer<typeof postSchema>;
 
 const FENCE =
   /(^|\n)(`{3,}|~{3,})[ \t]*slack-posts[ \t]*\r?\n([\s\S]*?)\r?\n\2[ \t]*(?=\r?\n|$)/g;
@@ -73,15 +62,17 @@ export interface SlackContextBlock {
  * Parse and validate the worker's posts.
  *
  * @param finalText - The worker's final reply.
- * @param allowedTargets - Normalized targets the job may post to.
+ * @param allowedTargets - Targets the job may post to, with the edit
+ *   timestamps and pin permission each allows.
  * @returns The validated posts (possibly empty).
- * @throws Error when the block is missing, duplicated, malformed, or
- *   targets a channel outside the allowlist. Nothing should be posted
- *   when this throws.
+ * @throws Error when the block is missing, duplicated, malformed, targets
+ *   a channel outside the allowlist, edits a message that is not an
+ *   allowed edit ts for that target, or pins where pins are not allowed.
+ *   Nothing should be posted when this throws.
  */
 export function parseWorkerPosts(
   finalText: string | null,
-  allowedTargets: readonly string[],
+  allowedTargets: readonly SlackPostTarget[],
 ): WorkerPost[] {
   const blocks = [...(finalText ?? '').matchAll(FENCE)];
   if (blocks.length === 0)
@@ -104,28 +95,52 @@ export function parseWorkerPosts(
   if (!parsed.success)
     throw new Error(`Invalid \`slack-posts\` block: ${parsed.error.message}`);
 
-  const allowed = new Set(allowedTargets);
+  const allowed = new Map(
+    allowedTargets.map((t) => [requireSlackTarget(t.target), t]),
+  );
   return parsed.data.map((p) => {
     const channel = normalizeSlackTarget(p.channel);
-    if (!channel || !allowed.has(channel))
+    const target = channel ? allowed.get(channel) : undefined;
+    if (!channel || !target)
       throw new Error(
         `Worker tried to post to "${p.channel}", which is not an allowed target for this job`,
+      );
+    if (p.edit_ts && !(target.editTs ?? []).includes(p.edit_ts))
+      throw new Error(
+        `Worker tried to edit message ${p.edit_ts} in ${channel}, which is not an allowed edit for this job`,
+      );
+    if (p.pin && !target.pin)
+      throw new Error(
+        `Worker tried to pin a message in ${channel}, which this job does not allow`,
       );
     return { ...p, channel };
   });
 }
 
+function permissions(t: SlackPostTarget): string {
+  const ops = [
+    ...(t.editTs?.length
+      ? [`may edit only message(s) ${t.editTs.join(', ')}`]
+      : []),
+    ...(t.pin ? ['may pin'] : []),
+  ];
+  return ops.length ? ` (${ops.join('; ')})` : '';
+}
+
 /**
  * TASK text telling the worker how Slack works for this job.
  *
- * @param targets - Allowed targets with a short purpose each.
+ * @param targets - Allowed (normalized) targets with a short purpose and
+ *   the operations each permits.
  * @returns Instructions to append to the TASK.
  */
 export function slackOutputInstructions(
-  targets: readonly { target: string; purpose: string }[],
+  targets: readonly SlackPostTarget[],
 ): string {
   const list = targets.length
-    ? targets.map((t) => `- ${t.target}: ${t.purpose}`).join('\n')
+    ? targets
+        .map((t) => `- ${t.target}: ${t.purpose}${permissions(t)}`)
+        .join('\n')
     : '- (none: this job does not post to Slack; return an empty array)';
   return `## Slack (handled by the job, not by you)
 
@@ -137,9 +152,9 @@ To post, end your final reply with exactly one fenced block whose info string is
 [{"channel": "<target id>", "text": "<Slack mrkdwn>", "thread_ts": "<optional thread ts>", "pin": false}]
 \`\`\`
 
-Fields: "channel" and "text" are required. "thread_ts" replies in a thread. "pin": true pins the new message. "edit_ts": "<ts>" replaces the text of an existing message instead of posting (no thread_ts/pin with edit_ts).
+Fields: "channel" and "text" are required. "thread_ts" replies in a thread. "pin": true pins the new message (only where the target below says "may pin"). "edit_ts": "<ts>" replaces the text of an existing message instead of posting (no thread_ts/pin with edit_ts; only the message ids listed for that target below).
 
-Allowed targets (any other target fails the whole job):
+Allowed targets (any other target, edit or pin fails the whole job):
 ${list}`;
 }
 

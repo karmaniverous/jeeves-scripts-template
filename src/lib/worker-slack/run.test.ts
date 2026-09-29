@@ -45,7 +45,7 @@ async function depsFor(argv: string[]): Promise<WorkerSlackDeps> {
   const call = mocks.runWorkerSlackJob.mock.calls.at(-1);
   if (!call) throw new Error('runWorkerSlackJob not called');
   expect(call[0]).toBe('Base task');
-  expect(call[1]).toBe(SLACK);
+  expect(call[1]).toEqual(SLACK);
   return call[2];
 }
 
@@ -117,6 +117,22 @@ describe('dispatchWithSlack', () => {
     mocks.dispatchSession.mockResolvedValueOnce({ exitCode: 0, stdout: 'x' });
     mocks.readWorkerFinalText.mockRejectedValueOnce(new Error('no history'));
     await expect(deps.dispatch('T')).rejects.toThrow('no history');
+  });
+
+  it.each([
+    ['a bad account id', { accountId: 'vc; rm -rf', posts: [] }],
+    [
+      'a zero read limit',
+      { reads: [{ target: 'C0B2Z734KSP', label: 'x', limit: 0 }] },
+    ],
+    ['a channel name target', { posts: [{ target: '#ops', purpose: 'p' }] }],
+  ])('rejects %s before any gateway call', async (_name, slack) => {
+    await expect(dispatchWithSlack('T', OPTIONS, slack, [])).rejects.toThrow(
+      /Invalid worker-slack config/,
+    );
+    expect(mocks.gatewaySlackIo).not.toHaveBeenCalled();
+    expect(mocks.runWorkerSlackJob).not.toHaveBeenCalled();
+    expect(mocks.dispatchSession).not.toHaveBeenCalled();
   });
 
   it('propagates a failing job run', async () => {

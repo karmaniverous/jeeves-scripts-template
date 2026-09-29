@@ -10,6 +10,9 @@
  * - `--dry-run`: dispatch, but print the worker's posts instead of posting;
  * - `--print-task`: read Slack, print the full TASK, and stop (no dispatch).
  *
+ * The job's Slack config is validated here (the dispatch boundary) before
+ * any gateway call; an invalid config fails the job.
+ *
  * Config dependencies: SPAWN_WORKER_PATH (constants.ts); gateway host/port
  * via gateway-client.ts.
  */
@@ -24,8 +27,11 @@ import { gatewayInvoke } from '../gateway-client.js';
 import { readWorkerFinalText } from '../worker-output.js';
 import { gatewaySlackIo } from './slack-io.js';
 import {
-  runWorkerSlackJob,
+  parseWorkerSlackConfig,
   type WorkerSlackConfig,
+} from './worker-slack-config.js';
+import {
+  runWorkerSlackJob,
   type WorkerSlackResult,
 } from './worker-slack-job.js';
 
@@ -34,16 +40,18 @@ import {
  *
  * @param task - Base TASK text.
  * @param options - Runner dispatch options (jobId, thinking, timeout, …).
- * @param slack - Reads and allowed post targets.
+ * @param slackConfig - Reads and allowed post targets (validated here).
  * @param argv - Process arguments (flags).
  * @returns The run result.
+ * @throws Error when the Slack config is invalid (before any side effect).
  */
 export async function dispatchWithSlack(
   task: string,
   options: DispatchOptions,
-  slack: WorkerSlackConfig,
+  slackConfig: WorkerSlackConfig,
   argv: readonly string[] = process.argv,
 ): Promise<WorkerSlackResult> {
+  const slack = parseWorkerSlackConfig(slackConfig);
   return runWorkerSlackJob(task, slack, {
     slack: gatewaySlackIo(gatewayInvoke, slack.accountId),
     dryRun: argv.includes('--dry-run'),

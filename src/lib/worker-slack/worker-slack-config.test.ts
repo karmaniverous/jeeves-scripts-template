@@ -70,18 +70,57 @@ describe('parseWorkerSlackConfig', () => {
   });
 
   it.each([
-    ['bare id then channel: prefix', 'C0B2Z734KSP', 'channel:C0B2Z734KSP'],
-    ['channel: prefix then bare id', 'channel:C0B2Z734KSP', 'c0b2z734ksp'],
-    ['bare user id then user: prefix', 'U0ABCDEFGH', 'user:U0ABCDEFGH'],
-  ])('rejects duplicate post targets (%s)', (_name, first, second) => {
+    [
+      'bare id then channel: prefix',
+      'C0B2Z734KSP',
+      'channel:C0B2Z734KSP',
+      'channel:C0B2Z734KSP',
+    ],
+    [
+      'channel: prefix then bare id',
+      'channel:C0B2Z734KSP',
+      'c0b2z734ksp',
+      'channel:C0B2Z734KSP',
+    ],
+    [
+      'bare user id then user: prefix',
+      'U0ABCDEFGH',
+      'user:U0ABCDEFGH',
+      'user:U0ABCDEFGH',
+    ],
+  ])(
+    'rejects duplicate post targets (%s)',
+    (_name, first, second, normalized) => {
+      const config = {
+        posts: [
+          { target: first, purpose: 'a', editTs: ['1789.1'] },
+          { target: second, purpose: 'b', pin: true },
+        ],
+      };
+      expect(() => parseWorkerSlackConfig(config)).toThrow(
+        new Error(
+          'Invalid worker-slack config: ' +
+            `✖ Duplicate post target ${normalized} ("${second}")\n` +
+            '  → at posts[1].target',
+        ),
+      );
+    },
+  );
+
+  it('flags only the later duplicate, at its own index', () => {
     const config = {
       posts: [
-        { target: first, purpose: 'a', editTs: ['1789.1'] },
-        { target: second, purpose: 'b', pin: true },
+        { target: 'C0B2Z734KSP', purpose: 'a' },
+        { target: 'user:U0ABCDEFGH', purpose: 'b' },
+        { target: ' channel:c0b2z734ksp ', purpose: 'c' },
       ],
     };
     expect(() => parseWorkerSlackConfig(config)).toThrow(
-      /Duplicate post target (channel|user):[A-Z0-9]+ \("/,
+      new Error(
+        'Invalid worker-slack config: ' +
+          '✖ Duplicate post target channel:C0B2Z734KSP (" channel:c0b2z734ksp ")\n' +
+          '  → at posts[2].target',
+      ),
     );
   });
 

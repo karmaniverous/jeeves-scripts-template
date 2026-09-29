@@ -158,6 +158,59 @@ describe('resolveOpenClawDist', () => {
     expect(result).toBe(newerDist);
   });
 
+  it.each([
+    [['v9.0.0', 'v24.0.0'], 'v24.0.0'],
+    [['v24.0.0', 'v9.0.0'], 'v24.0.0'],
+    [['v24.10.0', 'v24.9.0'], 'v24.10.0'],
+    [['v24.9.0', 'v24.10.0'], 'v24.10.0'],
+  ])(
+    'prefers numerically newest across digit widths (%j -> %s)',
+    async (dirs, newest) => {
+      mockedExecSync.mockImplementation(() => {
+        throw new Error('npm: command not found');
+      });
+
+      mockedFs.existsSync.mockImplementation((p: fs.PathLike) => {
+        const s = String(p);
+        if (s.endsWith(path.join('versions', 'node'))) return true;
+        if (s.endsWith('current')) return false;
+        // every version has openclaw installed
+        return s.endsWith(path.join('openclaw', 'dist'));
+      });
+
+      (
+        mockedFs.readdirSync as unknown as ReturnType<typeof vi.fn>
+      ).mockReturnValue(dirs);
+
+      process.env.NVM_DIR = '/home/jeeves/.nvm';
+
+      const { resolveOpenClawDist } = await loadModule();
+
+      expect(resolveOpenClawDist()).toBe(
+        path.join(
+          '/home/jeeves/.nvm',
+          'versions',
+          'node',
+          newest,
+          'lib',
+          'node_modules',
+          'openclaw',
+          'dist',
+        ),
+      );
+    },
+  );
+
+  it('compareNodeVersionsDesc sorts newest first numerically', async () => {
+    const { compareNodeVersionsDesc } = await loadModule();
+
+    expect(
+      ['v9.0.0', 'v24.9.0', 'v22.1.0', 'v24.10.0', 'v24.0.0'].sort(
+        compareNodeVersionsDesc,
+      ),
+    ).toEqual(['v24.10.0', 'v24.9.0', 'v24.0.0', 'v22.1.0', 'v9.0.0']);
+  });
+
   it('throws descriptive error when all methods fail', async () => {
     mockedExecSync.mockImplementation(() => {
       throw new Error('npm: command not found');

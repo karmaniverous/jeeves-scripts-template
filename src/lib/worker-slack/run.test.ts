@@ -1,7 +1,8 @@
 /**
  * Tests for the production adapter (run.ts): flags are forwarded, the full
  * TASK is dispatched through dispatchSession + spawn-worker, the final
- * reply is read back via readWorkerFinalText, and failures propagate.
+ * reply is read back via readWorkerFinalText (gateway chat.history RPC),
+ * and failures propagate.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
       (task: string, slack: unknown, deps: WorkerSlackDeps) => Promise<unknown>
     >(),
   gatewayInvoke: vi.fn(),
+  gatewayRpc: vi.fn(),
 }));
 
 vi.mock('@karmaniverous/jeeves-runner', () => ({
@@ -26,6 +28,7 @@ vi.mock('../worker-output.js', () => ({
 vi.mock('../gateway-client.js', () => ({
   gatewayInvoke: mocks.gatewayInvoke,
 }));
+vi.mock('../gateway-rpc.js', () => ({ gatewayRpc: mocks.gatewayRpc }));
 vi.mock('./slack-io.js', () => ({ gatewaySlackIo: mocks.gatewaySlackIo }));
 vi.mock('./worker-slack-job.js', () => ({
   runWorkerSlackJob: mocks.runWorkerSlackJob,
@@ -94,7 +97,7 @@ describe('dispatchWithSlack', () => {
     );
     expect(mocks.readWorkerFinalText).toHaveBeenCalledWith(
       'WORKER_RESULT:{}',
-      mocks.gatewayInvoke,
+      mocks.gatewayRpc,
     );
   });
 

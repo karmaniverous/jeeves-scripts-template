@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 
-import type { GatewayInvoker } from '../worker-output.js';
+import type { GatewayInvoker } from '../gateway-client.js';
 
 /** A Slack message as seen by the job. */
 export interface SlackMessage {

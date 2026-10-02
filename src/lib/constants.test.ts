@@ -1,12 +1,14 @@
 /**
  * Pins the path constants to the layout jeeves-tools provisions on managed
- * instances (karmaniverous/jeeves-tools#178):
+ * instances (karmaniverous/jeeves-tools#178, `src/api/remote-paths.ts`):
  *
  * - content root `/opt/jeeves/<contentDir>` with `contentDir` defaulting to
  *   `content`: the only root the watcher indexes and the server serves;
  * - gog home `/opt/jeeves/config/gogcli`: where deploy writes the
  *   service-account key and keyring, and what the gateway unit and the
- *   runner drop-in export as `GOG_HOME`.
+ *   runner drop-in export as `GOG_HOME`;
+ * - scripts checkout and gh config, where deploy clones the scripts repo
+ *   and provisions gh.
  *
  * @module constants.test
  */
@@ -36,10 +38,9 @@ afterEach(() => {
 });
 
 describe('content root', () => {
-  it('is the root jeeves-tools indexes and serves, not the old openclaw path', async () => {
+  it('is the root jeeves-tools indexes and serves', async () => {
     const c = await loadConstants();
     expect(c.CONTENT_DIR).toBe('/opt/jeeves/content');
-    expect(isUnder(c.CONTENT_DIR, '/opt/jeeves/openclaw')).toBe(false);
   });
 
   it('contains every content-derived pipeline output directory', async () => {
@@ -58,12 +59,23 @@ describe('content root', () => {
   });
 });
 
+describe('provisioned paths', () => {
+  it.each([
+    ['SCRIPTS_DIR', '/opt/jeeves/jeeves-scripts'],
+    ['PIPELINE_CONFIG_PATH', '/opt/jeeves/jeeves-scripts/pipeline-config.json'],
+    ['GH_CONFIG_DIR', '/opt/jeeves/config/gh-cli'],
+  ] as const)('%s is where jeeves-tools deploy puts it', async (name, want) => {
+    const c = await loadConstants();
+    expect(c[name]).toBe(want);
+  });
+});
+
 describe('gog home', () => {
   it('defaults to the directory jeeves-tools deploy provisions', async () => {
     vi.stubEnv('GOG_HOME', undefined);
     const c = await loadConstants();
     expect(c.GOG_CONFIG_DIR).toBe('/opt/jeeves/config/gogcli');
-    expect(isUnder(c.GOG_CONFIG_DIR, c.CREDENTIALS_DIR)).toBe(false);
+    expect(isUnder(c.GOG_CLIENT_PATH, c.GOG_CONFIG_DIR)).toBe(true);
   });
 
   it('follows GOG_HOME when the unit sets it', async () => {
@@ -71,11 +83,5 @@ describe('gog home', () => {
     const c = await loadConstants();
     expect(c.GOG_CONFIG_DIR).toBe('/srv/gog');
     expect(isUnder(c.GOG_CLIENT_PATH, '/srv/gog')).toBe(true);
-  });
-
-  it('keeps the OAuth client file inside the gog home', async () => {
-    vi.stubEnv('GOG_HOME', undefined);
-    const c = await loadConstants();
-    expect(isUnder(c.GOG_CLIENT_PATH, '/opt/jeeves/config/gogcli')).toBe(true);
   });
 });

@@ -29,13 +29,6 @@ describe('gog', () => {
     });
   });
 
-  describe('GOG constant', () => {
-    it('is a non-empty string path', () => {
-      expect(typeof GOG).toBe('string');
-      expect(GOG.length).toBeGreaterThan(0);
-    });
-  });
-
   describe('gogWithRetry', () => {
     it('calls runWithRetry with correct binary and args', () => {
       vi.mocked(runWithRetry).mockReturnValue('success output');
@@ -87,6 +80,8 @@ describe('gog', () => {
       expect(isRetryable(new Error('connection timeout'))).toBe(true);
       expect(isRetryable(new Error('permission denied'))).toBe(false);
       expect(isRetryable(new Error('file not found'))).toBe(false);
+      expect(isRetryable('context deadline exceeded')).toBe(true);
+      expect(isRetryable({ code: 1 })).toBe(false);
     });
 
     it('propagates errors from runWithRetry', () => {

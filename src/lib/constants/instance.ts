@@ -45,7 +45,7 @@ export const CONTENT_DIR = `${JEEVES_BASE_DIR}/content`;
  * Root directory for the scripts repo checkout. Used to resolve
  * spawn-worker and other self-referencing paths.
  */
-export const SCRIPTS_DIR = '/opt/jeeves/jeeves-scripts';
+export const SCRIPTS_DIR = `${JEEVES_BASE_DIR}/jeeves-scripts`;
 
 // ========== Pipeline Config [REQUIRED] ==========
 
@@ -57,8 +57,7 @@ export const SCRIPTS_DIR = '/opt/jeeves/jeeves-scripts';
  * On standalone instances, create it manually (see pipeline-config.ts
  * for the schema).
  */
-export const PIPELINE_CONFIG_PATH =
-  '/opt/jeeves/jeeves-scripts/pipeline-config.json';
+export const PIPELINE_CONFIG_PATH = `${SCRIPTS_DIR}/pipeline-config.json`;
 
 // ========== Silo Routing [OPTIONAL] ==========
 
@@ -69,7 +68,7 @@ export const PIPELINE_CONFIG_PATH =
  * Single-tenant instances can leave this unconfigured; scripts fall
  * back to CONTENT_DIR when no routing config exists.
  */
-export const SILO_ROUTING_CONFIG_PATH = '/opt/jeeves/config/silo-routing.json';
+export const SILO_ROUTING_CONFIG_PATH = `${CONFIG_DIR}/silo-routing.json`;
 
 // ========== Credentials [REQUIRED] ==========
 

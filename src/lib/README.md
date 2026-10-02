@@ -10,7 +10,7 @@ Shared infrastructure consumed by all domain scripts. This is where instance con
 
 Key exports:
 
-- Directory paths: `JEEVES_BASE_DIR`, `CONFIG_DIR`, `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves.
+- Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`.
 - GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH`
 - Email: `EMAIL_EVENTS_DIR`
@@ -49,7 +49,7 @@ GitHub CLI wrappers with typed invocation. Depends on `GH_BIN`, `GH_CONFIG_DIR`.
 
 ### gog.ts
 
-Google Workspace CLI wrapper with retry. Depends on `GOG_BIN`, `CREDENTIALS_DIR`.
+Google Workspace CLI wrapper with retry. Depends on `GOG_BIN`, `GOG_CONFIG_DIR`.
 
 - `gogWithRetry(args, opts?)` — run `gog` command with retry logic for transient network errors (context deadline exceeded, timeouts). Defaults `GOG_HOME` to `GOG_CONFIG_DIR` (an existing `GOG_HOME` is kept), so gog and the scripts use the same home.
 

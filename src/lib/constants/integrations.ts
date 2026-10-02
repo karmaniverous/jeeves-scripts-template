@@ -10,7 +10,12 @@
 
 import path from 'node:path';
 
-import { CONFIG_DIR, CONTENT_DIR, CREDENTIALS_DIR } from './instance.js';
+import {
+  CONFIG_DIR,
+  CONTENT_DIR,
+  CREDENTIALS_DIR,
+  JEEVES_BASE_DIR,
+} from './instance.js';
 
 // ========== GitHub [REQUIRED] ==========
 
@@ -24,7 +29,7 @@ export const GH_BIN = 'gh';
  * Directory where gh CLI stores its config (auth tokens, hosts.yml).
  * Set via GH_CONFIG_DIR env var before any gh invocations.
  */
-export const GH_CONFIG_DIR = '/opt/jeeves/config/gh-cli';
+export const GH_CONFIG_DIR = `${CONFIG_DIR}/gh-cli`;
 
 /**
  * Primary GitHub account that owns repos and receives notifications.
@@ -54,7 +59,7 @@ export const GITHUB_REGISTRY_PATH = path.join(GITHUB_DIR, 'registry.json');
  * Directory where email pipeline events (download confirmations,
  * classification results) are persisted for runner state tracking.
  */
-export const EMAIL_EVENTS_DIR = '/opt/jeeves/state/runner/email-events';
+export const EMAIL_EVENTS_DIR = `${JEEVES_BASE_DIR}/state/runner/email-events`;
 
 // ========== Google Auth [REQUIRED] ==========
 
@@ -108,8 +113,7 @@ export const PRIMARY_WORKSPACE = '';
  * Path to cached Slack channel-to-workspace mapping. Used by the
  * channel mapper to resolve channel IDs to workspace context.
  */
-export const SLACK_WORKSPACE_CACHE_PATH =
-  '/opt/jeeves/config/slack-channel-workspaces.json';
+export const SLACK_WORKSPACE_CACHE_PATH = `${CONFIG_DIR}/slack-channel-workspaces.json`;
 
 // ========== Notion [OPTIONAL] ==========
 

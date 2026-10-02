@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@karmaniverous/jeeves', () => ({
   runWithRetry: vi.fn(),
@@ -9,6 +9,26 @@ import { runWithRetry } from '@karmaniverous/jeeves';
 import { GOG, gogWithRetry } from './gog.js';
 
 describe('gog', () => {
+  describe('GOG_HOME', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('defaults to the jeeves-tools gog home when unset', async () => {
+      vi.stubEnv('GOG_HOME', undefined);
+      vi.resetModules();
+      await import('./gog.js');
+      expect(process.env.GOG_HOME).toBe('/opt/jeeves/config/gogcli');
+    });
+
+    it('keeps a GOG_HOME already set by the service unit', async () => {
+      vi.stubEnv('GOG_HOME', '/srv/gog');
+      vi.resetModules();
+      await import('./gog.js');
+      expect(process.env.GOG_HOME).toBe('/srv/gog');
+    });
+  });
+
   describe('GOG constant', () => {
     it('is a non-empty string path', () => {
       expect(typeof GOG).toBe('string');

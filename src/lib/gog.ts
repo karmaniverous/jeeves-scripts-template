@@ -5,21 +5,21 @@
  * binary for Gmail and Calendar operations.
  *
  * Called by email/poll.ts, email/download.ts, and calendar/poll.ts.
- * Sets APPDATA to CREDENTIALS_DIR so gog finds its config on the
- * data volume rather than the system default (Windows-specific; on
- * Linux, gog uses XDG_CONFIG_HOME or ~/.config by default).
+ * Defaults GOG_HOME to GOG_CONFIG_DIR so gog (and every child process
+ * it spawns) reads the same home the scripts read: the directory
+ * jeeves-tools provisions. An explicit GOG_HOME (set by the gateway unit
+ * and the runner drop-in on managed instances) is left untouched.
  *
- * Config dependencies: GOG_BIN, CREDENTIALS_DIR from constants.ts.
+ * Config dependencies: GOG_BIN, GOG_CONFIG_DIR from constants.ts.
  */
 
 import { runWithRetry } from '@karmaniverous/jeeves';
 
-import { CREDENTIALS_DIR, GOG_BIN } from './constants.js';
+import { GOG_BIN, GOG_CONFIG_DIR } from './constants.js';
 
 export const GOG = GOG_BIN;
 
-// Set APPDATA so gog finds credentials.
-process.env.APPDATA = CREDENTIALS_DIR;
+process.env.GOG_HOME ??= GOG_CONFIG_DIR;
 
 /**
  * Run a gog command with retry logic for transient network errors.

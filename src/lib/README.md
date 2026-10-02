@@ -14,7 +14,7 @@ Key exports:
 - GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH`
 - Email: `EMAIL_EVENTS_DIR`
-- Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`
+- Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`, `SLACK_CURSORS_PATH` (poller read positions; instance state)
 - X/Twitter: `X_OAUTH_DIR`, `X_ACCOUNTS`
 - Meetings: `DEFAULT_MEETINGS_DIR`
 - Gateway: `GATEWAY_HOST`, `GATEWAY_PORT`, `SPAWN_WORKER_PATH`

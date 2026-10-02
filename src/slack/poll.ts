@@ -9,6 +9,9 @@
  * writes individual JSON files per message to silo-routed directories.
  * Depends on PRIMARY_WORKSPACE, SLACK_DOMAIN_DIR, and
  * SLACK_WORKSPACE_CACHE_PATH from constants for workspace routing.
+ *
+ * Read positions (newest `ts` per channel) are instance state, kept in
+ * SLACK_CURSORS_PATH; `channels.json` holds curated channel config only.
  */
 
 import fs from 'node:fs';
@@ -23,10 +26,17 @@ import {
 import {
   PRIMARY_WORKSPACE,
   SCRIPTS_DIR,
+  SLACK_CURSORS_PATH,
   SLACK_DOMAIN_DIR,
   SLACK_WORKSPACE_CACHE_PATH,
 } from '../lib/constants.js';
 import { getBasePathForSlackWorkspace } from '../lib/silo-router.js';
+import {
+  type Cursors,
+  loadPollCursors,
+  saveChannels,
+  saveCursors,
+} from './lib/cursors.js';
 import {
   discoverChannels,
   fetchHistory,
@@ -49,7 +59,8 @@ interface ChannelInfo {
   type: string;
   isPrivate?: boolean;
   isArchived?: boolean;
-  lastTs: string;
+  /** Legacy read position; migrated to SLACK_CURSORS_PATH, never written. */
+  lastTs?: string;
   metadata?: Record<string, unknown>;
   isSlackConnect?: boolean;
   sharedTeams?: string[];
@@ -353,13 +364,14 @@ async function pollChannel(
   channelInfo: ChannelInfo,
   token: string,
   userMap: Record<string, string>,
+  cursors: Cursors,
 ): Promise<number> {
   const channelDir = await resolveChannelDir(
     channelId,
     channelInfo.name,
     token,
   );
-  const oldest = channelInfo.lastTs || '0';
+  const oldest = cursors[channelId] ?? '0';
 
   const { messages, newestTs } = await fetchHistory(channelId, oldest, token);
 
@@ -392,7 +404,7 @@ async function pollChannel(
   }
 
   if (maxTs > oldest) {
-    channelInfo.lastTs = maxTs;
+    cursors[channelId] = maxTs;
   }
 
   return written;
@@ -415,7 +427,6 @@ async function autoDiscover(
       type: ch.is_im ? 'dm' : ch.is_mpim ? 'mpim' : 'channel',
       isPrivate: ch.is_private ?? ch.is_im ?? false,
       isArchived: false,
-      lastTs: '0',
       metadata: {},
       _autoDiscovered: new Date().toISOString(),
       _account: account,
@@ -466,6 +477,12 @@ async function main(): Promise<void> {
     ChannelInfo
   >;
   const userMap = loadUsers();
+  const { cursors, migrated } = loadPollCursors(SLACK_CURSORS_PATH, channels);
+  if (migrated > 0) {
+    console.log(
+      `Migrated ${String(migrated)} legacy read position(s) from channels.json to ${SLACK_CURSORS_PATH}`,
+    );
+  }
 
   // Auto-discover new channels per token
   let totalDiscovered = 0;
@@ -485,7 +502,7 @@ async function main(): Promise<void> {
     }
   }
   if (totalDiscovered > 0) {
-    fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2), 'utf8');
+    saveChannels(CHANNELS_FILE, channels);
   }
 
   let totalWritten = 0;
@@ -499,7 +516,7 @@ async function main(): Promise<void> {
         tokensByAccount,
         teamToAccount,
       );
-      const written = await pollChannel(id, info, token, userMap);
+      const written = await pollChannel(id, info, token, userMap, cursors);
       if (written > 0) {
         console.log(`${id} (${info.name}): ${String(written)} new`);
         totalWritten += written;
@@ -511,8 +528,9 @@ async function main(): Promise<void> {
     }
   }
 
-  // Persist updated cursors and workspace cache
-  fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2), 'utf8');
+  // Persist read positions (state), then channel config, then workspace cache
+  saveCursors(SLACK_CURSORS_PATH, cursors);
+  saveChannels(CHANNELS_FILE, channels);
   saveCache();
 
   if (totalWritten > 0) {

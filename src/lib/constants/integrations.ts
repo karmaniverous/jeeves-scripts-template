@@ -115,6 +115,14 @@ export const PRIMARY_WORKSPACE = '';
  */
 export const SLACK_WORKSPACE_CACHE_PATH = `${CONFIG_DIR}/slack-channel-workspaces.json`;
 
+/**
+ * Slack poller read positions (`{ "<channelId>": "<lastTs>" }`). Instance
+ * state, not config (karmaniverous/jeeves-tools#184): if absent, the poller
+ * reads each channel from the beginning. Lives beside the other runner
+ * cursors under `state/runner/`.
+ */
+export const SLACK_CURSORS_PATH = `${JEEVES_BASE_DIR}/state/runner/cursors/slack-last-ts.json`;
+
 // ========== Notion [OPTIONAL] ==========
 
 /**

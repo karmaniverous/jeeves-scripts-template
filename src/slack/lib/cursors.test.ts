@@ -4,7 +4,8 @@
  * real `getRunnerClient()`: positions load from the store, a legacy
  * `lastTs` in channels.json migrates into the store before channels.json
  * is rewritten, channels.json never regains `lastTs`, an unreachable store
- * fails loudly, and absent state means "read from the beginning".
+ * (even with no channels) or a malformed position fails loudly, positions
+ * load after discovery, and absent state means "read from the beginning".
  *
  * @module slack/lib/cursors.test
  */
@@ -21,13 +22,17 @@ import {
   type RunnerClient,
 } from '@karmaniverous/jeeves-runner';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 import {
+  channelEntrySchema,
   cursorKey,
   loadPollCursors,
+  preparePollState,
   saveChannels,
   saveCursor,
   SLACK_STATE_NAMESPACE,
+  slackTsSchema,
 } from './cursors.js';
 
 let dir: string;
@@ -121,9 +126,9 @@ describe('loadPollCursors', () => {
 
     // channels.json rewritten without lastTs; the next run resumes from the store.
     saveChannels(channelsFile, legacy);
-    const rewritten = JSON.parse(
-      fs.readFileSync(channelsFile, 'utf8'),
-    ) as Record<string, { name?: string }>;
+    const rewritten = z
+      .record(z.string(), channelEntrySchema)
+      .parse(JSON.parse(fs.readFileSync(channelsFile, 'utf8')));
     const next = loadPollCursors(client, rewritten);
     expect(next).toEqual({
       cursors: { C1: '1700000000.000100' },
@@ -131,23 +136,64 @@ describe('loadPollCursors', () => {
     });
   });
 
-  it('fails clearly when the store schema is missing (no silent from-beginning fallback)', () => {
-    const bare = getRunnerClient(path.join(dir, 'not-a-runner-db.sqlite'));
-    try {
-      expect(() =>
-        loadPollCursors(bare, { C1: { lastTs: '1700000000.000100' } }),
-      ).toThrow(/Slack read positions unavailable: runner state store error/);
-    } finally {
-      bare.close();
-    }
-  });
+  it.each([
+    ['with channels', { C1: { lastTs: '1700000000.000100' } }],
+    ['with no channels', {}],
+  ])(
+    'fails clearly when the store schema is missing, %s (no silent from-beginning fallback)',
+    (_label, channels) => {
+      const bare = getRunnerClient(path.join(dir, 'not-a-runner-db.sqlite'));
+      try {
+        expect(() => loadPollCursors(bare, channels)).toThrow(
+          /Slack read positions unavailable: runner state store error/,
+        );
+      } finally {
+        bare.close();
+      }
+    },
+  );
 
-  it('fails clearly when the store connection is gone', () => {
+  it.each([
+    ['with channels', { C1: {} }],
+    ['with no channels', {}],
+  ])('fails clearly when the store connection is gone, %s', (_l, channels) => {
     const gone = getRunnerClient(dbPath);
     gone.close();
-    expect(() => loadPollCursors(gone, { C1: {} })).toThrow(
+    expect(() => loadPollCursors(gone, channels)).toThrow(
       /Slack read positions unavailable/,
     );
+  });
+
+  it('fails on a corrupt stored position instead of using it', () => {
+    client.setState('slack', 'lastTs-C1', 'garbage');
+    expect(() => loadPollCursors(client, { C1: {} })).toThrow(
+      /Invalid Slack read position "garbage" in runner state lastTs-C1/,
+    );
+  });
+
+  it.each([['1700000000'], [1700000000.0001], ['abc']])(
+    'fails on a malformed legacy lastTs %j and migrates nothing',
+    (lastTs) => {
+      expect(() => loadPollCursors(client, { C1: { lastTs } })).toThrow(
+        /Invalid Slack read position .* in channels\.json C1\.lastTs/,
+      );
+      expect(storedTs('C1')).toBeNull();
+    },
+  );
+});
+
+describe('slackTsSchema', () => {
+  it.each([
+    ['1700000000.000100', true],
+    ['0.1', true],
+    ['0', false],
+    ['', false],
+    ['1700000000', false],
+    ['1700000000.', false],
+    [' 1700000000.000100', false],
+    ['1e9.1', false],
+  ])('%j valid: %s', (value, ok) => {
+    expect(slackTsSchema.safeParse(value).success).toBe(ok);
   });
 });
 
@@ -156,6 +202,75 @@ describe('saveCursor', () => {
     saveCursor(client, 'C1', '1700000000.000100');
     saveCursor(client, 'C1', '1700000999.000100');
     expect(storedTs('C1')).toBe('1700000999.000100');
+  });
+
+  it('fails clearly when the store is unavailable', () => {
+    const gone = getRunnerClient(dbPath);
+    gone.close();
+    expect(() => {
+      saveCursor(gone, 'C1', '1700000000.000100');
+    }).toThrow(/Slack read positions unavailable/);
+  });
+});
+
+describe('preparePollState', () => {
+  it('loads stored positions for channels added by discovery', async () => {
+    // channels.json was rebuilt; the runner DB survived.
+    client.setState('slack', 'lastTs-C2', '1700000500.000200');
+    const channels: Record<string, { name: string }> = { C1: { name: 'one' } };
+
+    const result = await preparePollState(
+      client,
+      channelsFile,
+      channels,
+      () => {
+        channels.C2 = { name: 'two' };
+        return Promise.resolve(1);
+      },
+    );
+
+    expect(result).toEqual({
+      cursors: { C2: '1700000500.000200' },
+      migrated: 0,
+      discovered: 1,
+    });
+    expect(JSON.parse(fs.readFileSync(channelsFile, 'utf8'))).toEqual({
+      C1: { name: 'one' },
+      C2: { name: 'two' },
+    });
+  });
+
+  it('migrates legacy positions and leaves channels.json alone when nothing is discovered', async () => {
+    const result = await preparePollState(
+      client,
+      channelsFile,
+      { C1: { lastTs: '1700000000.000100' } },
+      () => Promise.resolve(0),
+    );
+
+    expect(result).toEqual({
+      cursors: { C1: '1700000000.000100' },
+      migrated: 1,
+      discovered: 0,
+    });
+    expect(storedTs('C1')).toBe('1700000000.000100');
+    expect(fs.existsSync(channelsFile)).toBe(false);
+  });
+
+  it('does not rewrite channels.json when the store is unavailable', async () => {
+    const gone = getRunnerClient(dbPath);
+    gone.close();
+    const channels: Record<string, { lastTs?: string }> = {
+      C1: { lastTs: '1700000000.000100' },
+    };
+
+    await expect(
+      preparePollState(gone, channelsFile, channels, () => {
+        channels.C2 = {};
+        return Promise.resolve(1);
+      }),
+    ).rejects.toThrow(/Slack read positions unavailable/);
+    expect(fs.existsSync(channelsFile)).toBe(false);
   });
 });
 

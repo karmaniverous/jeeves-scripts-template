@@ -37,7 +37,7 @@ import {
 import { getBasePathForSlackWorkspace } from '../lib/silo-router.js';
 import {
   type Cursors,
-  loadPollCursors,
+  preparePollState,
   saveChannels,
   saveCursor,
 } from './lib/cursors.js';
@@ -449,6 +449,30 @@ async function autoDiscover(
   return added;
 }
 
+/** Auto-discover new channels for every account; returns the number added. */
+async function discoverAll(
+  channels: Record<string, ChannelInfo>,
+  tokensByAccount: Record<string, string>,
+): Promise<number> {
+  let total = 0;
+  for (const [account, token] of Object.entries(tokensByAccount)) {
+    try {
+      const discovered = await autoDiscover(channels, token, account);
+      if (discovered > 0) {
+        console.log(
+          `Auto-discovered ${String(discovered)} new channel(s) for account "${account}"`,
+        );
+      }
+      total += discovered;
+    } catch (err) {
+      console.error(
+        `Channel discovery failed for account "${account}" (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  return total;
+}
+
 async function pollAll(client: RunnerClient): Promise<void> {
   const tokensByAccount = getTokens();
   const accountNames = Object.keys(tokensByAccount);
@@ -476,34 +500,19 @@ async function pollAll(client: RunnerClient): Promise<void> {
     ChannelInfo
   >;
   const userMap = loadUsers();
-  // Read positions come from the runner state store; legacy lastTs values
-  // are migrated into it here, before anything rewrites channels.json.
-  const { cursors, migrated } = loadPollCursors(client, channels);
+  // Discover first, then load read positions from the runner state store
+  // for the full channel set (migrating legacy lastTs values) before
+  // anything rewrites channels.json.
+  const { cursors, migrated } = await preparePollState(
+    client,
+    CHANNELS_FILE,
+    channels,
+    () => discoverAll(channels, tokensByAccount),
+  );
   if (migrated > 0) {
     console.log(
       `Migrated ${String(migrated)} legacy read position(s) from channels.json to runner state`,
     );
-  }
-
-  // Auto-discover new channels per token
-  let totalDiscovered = 0;
-  for (const [account, token] of Object.entries(tokensByAccount)) {
-    try {
-      const discovered = await autoDiscover(channels, token, account);
-      if (discovered > 0) {
-        console.log(
-          `Auto-discovered ${String(discovered)} new channel(s) for account "${account}"`,
-        );
-      }
-      totalDiscovered += discovered;
-    } catch (err) {
-      console.error(
-        `Channel discovery failed for account "${account}" (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-  if (totalDiscovered > 0) {
-    saveChannels(CHANNELS_FILE, channels);
   }
 
   let totalWritten = 0;

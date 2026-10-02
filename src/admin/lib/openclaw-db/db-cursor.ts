@@ -34,7 +34,8 @@ export type DbCursorState = z.infer<typeof dbCursorStateSchema>;
 
 /**
  * Parse raw runner state. Returns null when no cursor has been stored yet
- * (the store must be bootstrapped with regenerate-token-metrics).
+ * (an upgraded host must be bootstrapped with regenerate-token-metrics;
+ * a fresh instance starts empty, see fresh-openclaw-history.ts).
  */
 export function parseDbCursorState(raw: string | null): DbCursorState | null {
   if (raw === null) return null;

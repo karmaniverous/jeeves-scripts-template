@@ -75,6 +75,7 @@ function harness(useDb: boolean) {
       log.push('flush');
       return b.size;
     }),
+    hasOpenClawBuckets: vi.fn(() => false),
     openState: () => ({
       get: (k: string) => state.get(k) ?? null,
       set: (k: string, v: string) => {

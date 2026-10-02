@@ -84,7 +84,9 @@ When `~/.openclaw/agents/main/agent/openclaw-agent.sqlite` exists, the collector
 - Slack DMs whose session recorded no counterpart name (`slack:dm:<USERID>`) are named from `slack-dm-names.json` (beside the buckets), then the Slack poller's cached user map (`src/slack/lib/users.json`, read-only), then the gateway `message` tool (`member-info`); a looked-up name is cached. If nothing resolves the id key is kept.
 - Bucket files keep exactly the same format.
 - The cursor is `(transcript, seq)`, stored in runner state under `cursors-openclaw-db`. Usage in the still-open hour stops that transcript's cursor, so it's counted on a later run and never dropped. Nothing is counted twice.
-- With **no stored DB cursor**, the collector refuses to collect OpenClaw usage and exits non-zero, because counting from zero would double count history. Claude Code collection still runs.
+- With **no stored DB cursor**, the collector first checks whether OpenClaw usage was ever counted on this host (`fresh-openclaw-history.ts`). It was if the legacy JSONL cursor (`cursors`) has an entry, or if any bucket file (or `.backup-*` copy) under `{YYYY}/{MM}/` has a channel other than a Claude Code `cc:` channel. A bucket that can't be read, or has no `channels` object, counts too, to stay safe. The check stops at the first such bucket, and runs only when there's no DB cursor, so a host that already has one never scans its buckets.
+  - **Never counted (fresh instance):** the collector logs one line, starts the DB cursor empty and counts OpenClaw's whole history once. This is correct because nothing was counted before, and cheap because a new instance has little history. The cursor is saved after the flush, as usual. No manual bootstrap is needed.
+  - **Counted (upgraded host):** the collector refuses to collect OpenClaw usage and exits non-zero, because counting from zero would double count history. Bootstrap it with `regenerate-token-metrics.ts --from <upgrade hour>` (below). Claude Code collection still runs.
 - `recalculate-token-metrics.ts` refuses to run on a DB host. Use `regenerate-token-metrics.ts` instead.
 
 ### Regenerate
@@ -105,6 +107,8 @@ Pause the `collect-token-metrics` job while a live regeneration runs.
 `--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants/token-metrics.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
 
 ### Switching a host to the DB reader
+
+This is only for hosts **upgraded** to 2026.9 that already have token-metrics history. A fresh instance starts its DB cursor automatically (above).
 
 1. Find the 2026.9 upgrade time: the OpenClaw package install time, `schema_meta.updated_at` for `meta_key = 'primary'`, or `openclaw.json.pre-*` backups.
 2. Pick `--from` = the upgrade hour (floor to the hour), and set `OPENCLAW_UPGRADE_CUTOFF` to it. The JSONL collector wrote every bucket before that hour.

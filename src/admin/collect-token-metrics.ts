@@ -17,6 +17,12 @@
  * the agent-DB collector (node:sqlite) is imported lazily, only when the
  * agent DB exists, so legacy hosts on Node < 22.5 still run.
  *
+ * On a DB host with no stored DB cursor, OpenClaw usage is counted from
+ * the start of its history only when none was ever counted (no legacy
+ * cursor entry, no bucket file holding OpenClaw usage), as on a brand-new
+ * instance. Otherwise (a host upgraded to 2026.9) it refuses until
+ * regenerate-token-metrics --from <upgrade hour> bootstraps the cursor.
+ *
  * Config dependencies: OPENCLAW_AGENT_DB_PATH, SESSIONS_DIR,
  * CLAUDE_CODE_PROJECTS_DIR, TOKEN_METRICS_DIR, TOKEN_METRICS_NAMESPACE,
  * TOKEN_METRICS_CURSOR_KEY, TOKEN_METRICS_DB_CURSOR_KEY,
@@ -40,6 +46,7 @@ import { currentHourBoundaryMs, flushBuckets } from './lib/bucket-io.js';
 import { scanClaudeCodeSessions } from './lib/claude-code-session-scan.js';
 import { runCollect } from './lib/collect-run.js';
 import { applyDmNames, gatewayMemberName } from './lib/dm-name-sources.js';
+import { hasOpenClawBuckets } from './lib/fresh-openclaw-history.js';
 import { loadRateCard } from './lib/rate-card.js';
 import { ensureRateCard } from './lib/rate-card-seed.js';
 import { scanAllSessions } from './lib/session-scanner.js';
@@ -83,6 +90,7 @@ async function collect(): Promise<void> {
       });
     },
     flush: flushBuckets,
+    hasOpenClawBuckets: () => hasOpenClawBuckets(),
     openState: openTokenMetricsState,
   });
   if (code !== 0) process.exitCode = code;

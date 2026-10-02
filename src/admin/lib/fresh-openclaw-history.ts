@@ -10,7 +10,8 @@
  * - the legacy JSONL cursor (TOKEN_METRICS_CURSOR_KEY) has an entry;
  * - a bucket file (or a recalc/regen backup of one) under the bucket root
  *   holds a channel that is not a Claude Code `cc:` channel, or can't be
- *   read (counted as OpenClaw usage, to stay safe).
+ *   read or has no `channels` object (counted as OpenClaw usage, to stay
+ *   safe).
  * Claude Code buckets don't count: a fresh host writes them on the runs
  * where the DB collector refused.
  */
@@ -19,10 +20,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { readJson } from '@karmaniverous/jeeves';
+import { z } from 'zod';
 
 import { TOKEN_METRICS_DIR } from '../../lib/constants.js';
-import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
+import type { CursorState } from '../types/token-metrics.js';
 import { CC_CHANNEL_PREFIX } from './claude-code-scanner.js';
+
+/** The only part of a bucket file this check reads: its channel keys. */
+const bucketChannelsSchema = z.object({
+  channels: z.record(z.string(), z.unknown()),
+});
 
 /** Child directory names matching `pattern` (none when `dir` is absent). */
 function subdirs(dir: string, pattern: RegExp): string[] {
@@ -33,11 +40,14 @@ function subdirs(dir: string, pattern: RegExp): string[] {
     .map((e) => path.join(dir, e.name));
 }
 
-/** True when the bucket file holds OpenClaw usage or can't be read. */
+/**
+ * True when the bucket file holds OpenClaw usage, can't be read, or has
+ * no `channels` object (e.g. `null` or an array).
+ */
 function holdsOpenClawUsage(file: string): boolean {
-  const bucket = readJson<HourlyBucket | null>(file, null);
-  if (!bucket || typeof bucket.channels !== 'object') return true;
-  return Object.keys(bucket.channels).some(
+  const bucket = bucketChannelsSchema.safeParse(readJson<unknown>(file, null));
+  if (!bucket.success) return true;
+  return Object.keys(bucket.data.channels).some(
     (key) => !key.startsWith(CC_CHANNEL_PREFIX),
   );
 }

@@ -5,9 +5,10 @@
  * - fresh instance (nothing counted yet): starts the cursor empty, counts
  *   the whole history once, saves the cursor;
  * - upgraded instance (legacy cursor entry, or a bucket / backup holding
- *   OpenClaw usage, or an unreadable bucket): still refuses with the
- *   bootstrap message and writes no OpenClaw usage or DB cursor;
- * - stored cursor: resumes from it whatever the bucket store holds.
+ *   OpenClaw usage, or an unreadable or malformed bucket): still refuses
+ *   with the bootstrap message and writes no OpenClaw usage or DB cursor;
+ * - stored cursor (an existing DB host): resumes from it without checking
+ *   history, whatever the legacy cursor and bucket store hold.
  */
 
 import fs from 'node:fs';
@@ -21,6 +22,8 @@ import {
   TOKEN_METRICS_DB_CURSOR_KEY,
 } from '../../lib/constants.js';
 import type { HourlyBucket } from '../types/token-metrics.js';
+import { readBucket } from './bucket-io.js';
+import { parseDbCursorState } from './openclaw-db/db-cursor.js';
 import { createV23Fixture } from './openclaw-db/test-fixture-v23.js';
 
 const MODEL = 'anthropic/claude-sonnet-4-6';
@@ -29,6 +32,11 @@ const REFUSAL =
   'Bootstrap once with: tsx src/admin/regenerate-token-metrics.ts --from <OpenClaw 2026.9 upgrade hour, ISO>';
 const HOUR = '2026-06-15T10';
 const OLD_HOUR = '2026-06-14T09';
+const LEGACY_CURSOR = {
+  [TOKEN_METRICS_CURSOR_KEY]: JSON.stringify({
+    'a.jsonl': { byteOffset: 10, lastTimestamp: 1 },
+  }),
+};
 
 const header = (id: string) =>
   JSON.stringify({ type: 'session', version: 3, id });
@@ -98,13 +106,6 @@ function writeBucketFile(name: string, content: unknown): void {
   );
 }
 
-function readHour(hour: string): HourlyBucket | null {
-  const fp = path.join(bucketDir, '2026', '06', `${hour}.json`);
-  return fs.existsSync(fp)
-    ? (JSON.parse(fs.readFileSync(fp, 'utf8')) as HourlyBucket)
-    : null;
-}
-
 /** Run one collection against a fixture DB holding session s1 (seq 1..2). */
 async function run(initialState: Record<string, string> = {}) {
   const fx = createV23Fixture(root);
@@ -122,6 +123,7 @@ async function run(initialState: Record<string, string> = {}) {
   const { runCollect } = await import('./collect-run.js');
   const { flushBuckets } = await import('./bucket-io.js');
   const { hasOpenClawBuckets } = await import('./fresh-openclaw-history.js');
+  const bucketCheck = vi.fn(() => hasOpenClawBuckets(bucketDir));
 
   const state = new Map(Object.entries(initialState));
   const code = await runCollect({
@@ -139,7 +141,7 @@ async function run(initialState: Record<string, string> = {}) {
     triggerRateCardRefresh: () => undefined,
     nameDms: () => Promise.resolve(),
     flush: (b) => flushBuckets(b, bucketDir),
-    hasOpenClawBuckets: () => hasOpenClawBuckets(bucketDir),
+    hasOpenClawBuckets: bucketCheck,
     openState: () => ({
       get: (k) => state.get(k) ?? null,
       set: (k, v) => {
@@ -148,47 +150,49 @@ async function run(initialState: Record<string, string> = {}) {
       close: () => undefined,
     }),
   });
-  return { code, state };
+  return { code, state, bucketCheck };
 }
 
 /** Input tokens counted for the fixture session (undefined: none). */
 function counted(hour: string): number | undefined {
-  const channels = readHour(hour)?.channels;
+  const channels = readBucket(hour, bucketDir)?.channels;
   return channels && 'unknown' in channels
     ? channels.unknown.models[MODEL].input.count
     : undefined;
 }
 
+/** The saved DB cursor's lastSeq for session s1 (undefined: none saved). */
+function savedSeq(state: Map<string, string>): number | undefined {
+  return parseDbCursorState(state.get(TOKEN_METRICS_DB_CURSOR_KEY) ?? null)?.[
+    'session:s1'
+  ].lastSeq;
+}
+
 describe('collect-token-metrics without a stored OpenClaw DB cursor', () => {
-  it('fresh instance: starts the cursor empty and counts the whole history once', async () => {
-    // Claude Code usage collected on earlier (refused) runs doesn't count.
-    writeBucketFile(`${OLD_HOUR}.json`, bucket(OLD_HOUR, 'cc:jeeves'));
+  it.each<[string, Record<string, string>]>([
+    ['no legacy cursor', {}],
+    ['an empty legacy cursor', { [TOKEN_METRICS_CURSOR_KEY]: '{}' }],
+  ])(
+    'fresh instance (%s): starts the cursor empty and counts the whole history once',
+    async (_label, initial) => {
+      // Claude Code usage collected on earlier (refused) runs doesn't count.
+      writeBucketFile(`${OLD_HOUR}.json`, bucket(OLD_HOUR, 'cc:jeeves'));
 
-    const { code, state } = await run();
+      const { code, state } = await run(initial);
 
-    expect(code).toBe(0);
-    expect(process.exitCode).toBeUndefined();
-    expect(console.error).not.toHaveBeenCalled();
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('fresh instance'),
-    );
-    expect(counted(HOUR)).toBe(3);
-    const cursor = JSON.parse(
-      state.get(TOKEN_METRICS_DB_CURSOR_KEY) ?? 'null',
-    ) as Record<string, { lastSeq: number }>;
-    expect(cursor['session:s1'].lastSeq).toBe(2);
-  });
+      expect(code).toBe(0);
+      expect(process.exitCode).toBeUndefined();
+      expect(console.error).not.toHaveBeenCalled();
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('fresh instance'),
+      );
+      expect(counted(HOUR)).toBe(3);
+      expect(savedSeq(state)).toBe(2);
+    },
+  );
 
   it.each<[string, Record<string, string>, () => void]>([
-    [
-      'a legacy JSONL cursor entry',
-      {
-        [TOKEN_METRICS_CURSOR_KEY]: JSON.stringify({
-          'a.jsonl': { byteOffset: 10, lastTimestamp: 1 },
-        }),
-      },
-      () => undefined,
-    ],
+    ['a legacy JSONL cursor entry', LEGACY_CURSOR, () => undefined],
     [
       'a bucket holding OpenClaw usage',
       {},
@@ -219,6 +223,13 @@ describe('collect-token-metrics without a stored OpenClaw DB cursor', () => {
         writeBucketFile(`${OLD_HOUR}.json`, '{ not json');
       },
     ],
+    [
+      'a bucket with null channels',
+      {},
+      () => {
+        writeBucketFile(`${OLD_HOUR}.json`, { hour: OLD_HOUR, channels: null });
+      },
+    ],
   ])(
     'upgraded instance (%s): still refuses with the bootstrap message',
     async (_label, initial, arrange) => {
@@ -233,24 +244,34 @@ describe('collect-token-metrics without a stored OpenClaw DB cursor', () => {
     },
   );
 
-  it('stored cursor: resumes from it even when buckets hold OpenClaw usage', async () => {
-    writeBucketFile(`${OLD_HOUR}.json`, bucket(OLD_HOUR, 'slack:channel:#g'));
+  // A stored cursor after seq 1 counts only seq 2; an empty one counts both.
+  it.each<[string, string, number]>([
+    [
+      'a stored cursor',
+      JSON.stringify({ 'session:s1': { lastSeq: 1, lastTimestamp: 0 } }),
+      2,
+    ],
+    ['an empty stored cursor', '{}', 3],
+  ])(
+    'existing DB host (%s): resumes from it without checking history',
+    async (_label, rawCursor, expected) => {
+      // Legacy cursor and OpenClaw buckets, as on an upgraded host.
+      writeBucketFile(`${OLD_HOUR}.json`, bucket(OLD_HOUR, 'slack:channel:#g'));
 
-    const { code, state } = await run({
-      [TOKEN_METRICS_DB_CURSOR_KEY]: JSON.stringify({
-        'session:s1': { lastSeq: 1, lastTimestamp: 0 },
-      }),
-    });
+      const { code, state, bucketCheck } = await run({
+        ...LEGACY_CURSOR,
+        [TOKEN_METRICS_DB_CURSOR_KEY]: rawCursor,
+      });
 
-    expect(code).toBe(0);
-    expect(process.exitCode).toBeUndefined();
-    expect(console.log).not.toHaveBeenCalledWith(
-      expect.stringContaining('fresh instance'),
-    );
-    expect(counted(HOUR)).toBe(2);
-    const cursor = JSON.parse(
-      state.get(TOKEN_METRICS_DB_CURSOR_KEY) ?? 'null',
-    ) as Record<string, { lastSeq: number }>;
-    expect(cursor['session:s1'].lastSeq).toBe(2);
-  });
+      expect(code).toBe(0);
+      expect(process.exitCode).toBeUndefined();
+      expect(console.error).not.toHaveBeenCalled();
+      expect(bucketCheck).not.toHaveBeenCalled();
+      expect(console.log).not.toHaveBeenCalledWith(
+        expect.stringContaining('fresh instance'),
+      );
+      expect(counted(HOUR)).toBe(expected);
+      expect(savedSeq(state)).toBe(2);
+    },
+  );
 });

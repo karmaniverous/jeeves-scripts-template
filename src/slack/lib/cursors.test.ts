@@ -6,6 +6,7 @@
  * is rewritten, channels.json never regains `lastTs`, an unreachable store
  * (even with no channels) or a malformed position fails loudly, positions
  * load after discovery, and absent state means "read from the beginning".
+ * The `saveChannels()` writer is covered in `cursors.save-channels.test.ts`.
  *
  * @module slack/lib/cursors.test
  */
@@ -271,36 +272,5 @@ describe('preparePollState', () => {
       }),
     ).rejects.toThrow(/Slack read positions unavailable/);
     expect(fs.existsSync(channelsFile)).toBe(false);
-  });
-});
-
-describe('saveChannels', () => {
-  it('never writes lastTs to channels.json and keeps curated fields', () => {
-    const channels = {
-      C1: {
-        name: 'general',
-        type: 'channel',
-        lastTs: '1700000000.000100',
-        metadata: { topic: 'x' },
-        _account: 'default',
-      },
-      C2: { name: 'dm-U1', type: 'dm' },
-    };
-
-    saveChannels(channelsFile, channels);
-
-    const raw = fs.readFileSync(channelsFile, 'utf8');
-    expect(raw).not.toMatch(/lastTs/);
-    expect(JSON.parse(raw)).toEqual({
-      C1: {
-        name: 'general',
-        type: 'channel',
-        metadata: { topic: 'x' },
-        _account: 'default',
-      },
-      C2: { name: 'dm-U1', type: 'dm' },
-    });
-    // The caller's in-memory objects are not mutated.
-    expect(channels.C1.lastTs).toBe('1700000000.000100');
   });
 });

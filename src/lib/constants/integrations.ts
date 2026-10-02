@@ -10,7 +10,12 @@
 
 import path from 'node:path';
 
-import { CONTENT_DIR, CREDENTIALS_DIR } from './instance.js';
+import {
+  CONFIG_DIR,
+  CONTENT_DIR,
+  CREDENTIALS_DIR,
+  JEEVES_BASE_DIR,
+} from './instance.js';
 
 // ========== GitHub [REQUIRED] ==========
 
@@ -24,7 +29,7 @@ export const GH_BIN = 'gh';
  * Directory where gh CLI stores its config (auth tokens, hosts.yml).
  * Set via GH_CONFIG_DIR env var before any gh invocations.
  */
-export const GH_CONFIG_DIR = '/opt/jeeves/config/gh-cli';
+export const GH_CONFIG_DIR = `${CONFIG_DIR}/gh-cli`;
 
 /**
  * Primary GitHub account that owns repos and receives notifications.
@@ -54,7 +59,7 @@ export const GITHUB_REGISTRY_PATH = path.join(GITHUB_DIR, 'registry.json');
  * Directory where email pipeline events (download confirmations,
  * classification results) are persisted for runner state tracking.
  */
-export const EMAIL_EVENTS_DIR = '/opt/jeeves/state/runner/email-events';
+export const EMAIL_EVENTS_DIR = `${JEEVES_BASE_DIR}/state/runner/email-events`;
 
 // ========== Google Auth [REQUIRED] ==========
 
@@ -62,17 +67,20 @@ export const EMAIL_EVENTS_DIR = '/opt/jeeves/state/runner/email-events';
  * Google Workspace CLI binary name. On Linux this resolves via PATH;
  * on Windows it also resolves via PATH after installer adds it.
  *
- * The gog CLI uses APPDATA to locate its config directory — see gog.ts
- * for the APPDATA override that points to CREDENTIALS_DIR.
+ * The gog CLI locates its home via the GOG_HOME env var — see gog.ts,
+ * which defaults GOG_HOME to GOG_CONFIG_DIR.
  */
 export const GOG_BIN = 'gog';
 
 /**
- * Directory where gogcli stores credentials (credentials.json, tokens).
- * Derived from CREDENTIALS_DIR so all Google credentials live on the
- * data volume (survives system rebuilds).
+ * gog home directory (GOG_HOME): service-account keys, OAuth client
+ * credentials, and the file keyring.
+ *
+ * jeeves-tools deploy provisions `/opt/jeeves/config/gogcli` and sets
+ * GOG_HOME to it for the gateway and the runner, so this honours GOG_HOME
+ * when set and otherwise derives the same path from CONFIG_DIR.
  */
-export const GOG_CONFIG_DIR = path.join(CREDENTIALS_DIR, 'gogcli');
+export const GOG_CONFIG_DIR = process.env.GOG_HOME ?? `${CONFIG_DIR}/gogcli`;
 
 /**
  * Path to the Google OAuth client credentials file used by gogcli.
@@ -105,8 +113,7 @@ export const PRIMARY_WORKSPACE = '';
  * Path to cached Slack channel-to-workspace mapping. Used by the
  * channel mapper to resolve channel IDs to workspace context.
  */
-export const SLACK_WORKSPACE_CACHE_PATH =
-  '/opt/jeeves/config/slack-channel-workspaces.json';
+export const SLACK_WORKSPACE_CACHE_PATH = `${CONFIG_DIR}/slack-channel-workspaces.json`;
 
 // ========== Notion [OPTIONAL] ==========
 

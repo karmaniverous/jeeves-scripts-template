@@ -19,19 +19,33 @@ import path from 'node:path';
 export const INSTANCE_NAME = '';
 
 /**
+ * Jeeves base directory (the instance data volume). Content, config,
+ * state, and the scripts checkout live under it.
+ */
+export const JEEVES_BASE_DIR = '/opt/jeeves';
+
+/**
+ * Root config directory. Service configs, credentials, and the gog home
+ * live under it.
+ */
+export const CONFIG_DIR = `${JEEVES_BASE_DIR}/config`;
+
+/**
  * Root content directory. All pipeline output (email, meetings, github,
  * slack, calendar) is written under this path.
  *
- * On jeeves-tools-managed instances this defaults to
- * /opt/jeeves/openclaw/content.
+ * jeeves-tools indexes (watcher) and serves (server) `/opt/jeeves/<contentDir>`,
+ * and `contentDir` defaults to `content`. If the instance config sets a
+ * different `contentDir`, change the last segment to match, or pipeline
+ * output will not be indexed.
  */
-export const CONTENT_DIR = '/opt/jeeves/openclaw/content';
+export const CONTENT_DIR = `${JEEVES_BASE_DIR}/content`;
 
 /**
  * Root directory for the scripts repo checkout. Used to resolve
  * spawn-worker and other self-referencing paths.
  */
-export const SCRIPTS_DIR = '/opt/jeeves/jeeves-scripts';
+export const SCRIPTS_DIR = `${JEEVES_BASE_DIR}/jeeves-scripts`;
 
 // ========== Pipeline Config [REQUIRED] ==========
 
@@ -43,8 +57,7 @@ export const SCRIPTS_DIR = '/opt/jeeves/jeeves-scripts';
  * On standalone instances, create it manually (see pipeline-config.ts
  * for the schema).
  */
-export const PIPELINE_CONFIG_PATH =
-  '/opt/jeeves/jeeves-scripts/pipeline-config.json';
+export const PIPELINE_CONFIG_PATH = `${SCRIPTS_DIR}/pipeline-config.json`;
 
 // ========== Silo Routing [OPTIONAL] ==========
 
@@ -55,7 +68,7 @@ export const PIPELINE_CONFIG_PATH =
  * Single-tenant instances can leave this unconfigured; scripts fall
  * back to CONTENT_DIR when no routing config exists.
  */
-export const SILO_ROUTING_CONFIG_PATH = '/opt/jeeves/config/silo-routing.json';
+export const SILO_ROUTING_CONFIG_PATH = `${CONFIG_DIR}/silo-routing.json`;
 
 // ========== Credentials [REQUIRED] ==========
 
@@ -65,7 +78,7 @@ export const SILO_ROUTING_CONFIG_PATH = '/opt/jeeves/config/silo-routing.json';
  *
  * Individual service credential paths are derived from this root.
  */
-export const CREDENTIALS_DIR = '/opt/jeeves/config/credentials';
+export const CREDENTIALS_DIR = `${CONFIG_DIR}/credentials`;
 
 // ========== Qdrant [OPTIONAL] ==========
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@karmaniverous/jeeves', () => ({
   runWithRetry: vi.fn(),
@@ -9,10 +9,23 @@ import { runWithRetry } from '@karmaniverous/jeeves';
 import { GOG, gogWithRetry } from './gog.js';
 
 describe('gog', () => {
-  describe('GOG constant', () => {
-    it('is a non-empty string path', () => {
-      expect(typeof GOG).toBe('string');
-      expect(GOG.length).toBeGreaterThan(0);
+  describe('GOG_HOME', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('defaults to the jeeves-tools gog home when unset', async () => {
+      vi.stubEnv('GOG_HOME', undefined);
+      vi.resetModules();
+      await import('./gog.js');
+      expect(process.env.GOG_HOME).toBe('/opt/jeeves/config/gogcli');
+    });
+
+    it('keeps a GOG_HOME already set by the service unit', async () => {
+      vi.stubEnv('GOG_HOME', '/srv/gog');
+      vi.resetModules();
+      await import('./gog.js');
+      expect(process.env.GOG_HOME).toBe('/srv/gog');
     });
   });
 
@@ -67,6 +80,8 @@ describe('gog', () => {
       expect(isRetryable(new Error('connection timeout'))).toBe(true);
       expect(isRetryable(new Error('permission denied'))).toBe(false);
       expect(isRetryable(new Error('file not found'))).toBe(false);
+      expect(isRetryable('context deadline exceeded')).toBe(true);
+      expect(isRetryable({ code: 1 })).toBe(false);
     });
 
     it('propagates errors from runWithRetry', () => {

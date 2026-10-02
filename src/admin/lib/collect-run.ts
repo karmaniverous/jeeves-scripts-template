@@ -6,7 +6,10 @@
  * 1. seed the rate card (the usage parser prices through it);
  * 2. scan OpenClaw usage up to the last closed hour: from the agent DB on
  *    2026.9+ hosts, else the legacy SESSIONS_DIR transcripts; then Claude
- *    Code logs;
+ *    Code logs. A DB host with no stored DB cursor starts it empty (counts
+ *    OpenClaw's whole history) only when nothing was counted before (no
+ *    legacy cursor entry, no bucket holding OpenClaw usage; see
+ *    fresh-openclaw-history.ts); otherwise the DB collector refuses;
  * 3. refuse to write when a model is missing from the rate card (triggers
  *    a rate refresh);
  * 4. name id-only Slack DMs, flush buckets, THEN save cursors.
@@ -21,6 +24,7 @@ import {
   TOKEN_METRICS_DB_CURSOR_KEY,
 } from '../../lib/constants.js';
 import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
+import { isFreshOpenClawHistory } from './fresh-openclaw-history.js';
 import type { CollectOpenClawParams } from './openclaw-db/collect-openclaw.js';
 import type { DbCursorState } from './openclaw-db/db-cursor.js';
 import type { ScanResult } from './session-scanner.js';
@@ -59,11 +63,32 @@ export interface CollectDeps {
   triggerRateCardRefresh: () => void;
   nameDms: (buckets: Map<string, HourlyBucket>) => Promise<void>;
   flush: (buckets: Map<string, HourlyBucket>) => number;
+  /** True when a bucket file already holds OpenClaw usage. */
+  hasOpenClawBuckets: () => boolean;
   openState: () => TokenMetricsState;
 }
 
 function parseCursors(raw: string | null): CursorState {
   return raw ? (JSON.parse(raw) as CursorState) : {};
+}
+
+/**
+ * The stored DB cursor, or an empty one on a host that never counted
+ * OpenClaw usage (null otherwise: the DB collector then refuses).
+ */
+function loadDbCursor(
+  state: TokenMetricsState,
+  legacyCursors: CursorState,
+  deps: CollectDeps,
+): string | null {
+  const raw = state.get(TOKEN_METRICS_DB_CURSOR_KEY);
+  if (raw !== null) return raw;
+  if (!isFreshOpenClawHistory(legacyCursors, deps.hasOpenClawBuckets))
+    return null;
+  console.log(
+    `${TAG} No OpenClaw DB cursor and no OpenClaw usage counted yet (fresh instance); starting the DB cursor empty, counting OpenClaw history from the start.`,
+  );
+  return '{}';
 }
 
 /**
@@ -96,7 +121,7 @@ export async function runCollect(deps: CollectDeps): Promise<number> {
       dbCursors = collectOpenClawDb({
         dbPath: deps.agentDbPath,
         sessionsDir: deps.sessionsDir,
-        rawCursor: state.get(TOKEN_METRICS_DB_CURSOR_KEY),
+        rawCursor: loadDbCursor(state, cursors, deps),
         cutoffMs,
         buckets,
         seenModels,

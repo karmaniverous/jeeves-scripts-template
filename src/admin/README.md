@@ -65,6 +65,7 @@ No external prerequisites — all jobs run against local filesystem and gateway 
 | `lib/regen-guard.ts` | Refuses regenerate `--from` before `OPENCLAW_UPGRADE_CUTOFF` without `--allow-pre-upgrade` |
 | `lib/regen-run.ts` | regenerate-token-metrics orchestration: scratch / live / bounded (`--to`, counted-only, cursors untouched), backup → delete → flush → cursor replace |
 | `lib/collect-run.ts` | collect-token-metrics orchestration; loads the agent-DB collector (node:sqlite) lazily |
+| `lib/fresh-openclaw-history.ts` | Fresh-instance check: with no DB cursor, the collector starts it empty only when no legacy cursor entry and no bucket holding OpenClaw usage exist; otherwise it refuses until regenerate bootstraps it |
 | `lib/token-metrics-state.ts` | Runner-state port for the token-metrics namespace |
 | `lib/bucket-maintenance.ts` | Bucket backup (`.backup-<ts>.json`, never overwritten) and deletion for rebuilds |
 | `lib/claude-code-session-scan.ts` | Claude Code usage scan with byte cursors; `countedOnly` for bounded rebuilds |

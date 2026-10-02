@@ -4,10 +4,12 @@
  * Incremental OpenClaw collection step for collect-token-metrics on a
  * 2026.9+ host: loads the DB cursor from runner state, scans the agent DB
  * up to the cutoff, and returns the updated cursor for the caller to save
- * AFTER buckets are flushed. Without a stored cursor it refuses (returns
- * null and sets a non-zero exit code): counting from zero would double
- * count history the JSONL collector already wrote. Bootstrap with
- * regenerate-token-metrics --from <upgrade hour>.
+ * AFTER buckets are flushed. Without a cursor it refuses (returns null and
+ * sets a non-zero exit code): counting from zero would double count
+ * history the JSONL collector already wrote. Bootstrap with
+ * regenerate-token-metrics --from <upgrade hour>. On a fresh instance
+ * (nothing counted yet) collect-run passes an empty cursor instead of
+ * null (fresh-openclaw-history.ts), so no bootstrap is needed.
  */
 
 import type { HourlyBucket } from '../../types/token-metrics.js';

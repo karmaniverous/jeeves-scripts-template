@@ -17,6 +17,9 @@ import path from 'node:path';
 import { CLAUDE_CODE_PROJECTS_DIR } from '../../lib/constants.js';
 import type { TokenCategory } from '../types/token-metrics.js';
 
+/** Prefix of every Claude Code channel key (`cc:<project>`). */
+export const CC_CHANNEL_PREFIX = 'cc:';
+
 /** Map of Claude Code project directory names to channel keys. */
 const PROJECT_CHANNEL_MAP: Record<string, { key: string; name: string }> = {};
 
@@ -38,7 +41,7 @@ export function projectToChannel(dirName: string): {
   // org-project boundary is ambiguous for hyphenated org names.
   const name = dirName.replace(/^[A-Z]--(?:repos-|projects-)?/, '');
 
-  const result = { key: `cc:${name}`, name: `CC: ${name}` };
+  const result = { key: `${CC_CHANNEL_PREFIX}${name}`, name: `CC: ${name}` };
   PROJECT_CHANNEL_MAP[dirName] = result;
   return result;
 }

@@ -4,7 +4,9 @@
  *
  * Rebuild hourly token buckets for [--from, --to) from the OpenClaw 2026.9+
  * agent DB (read-only) plus Claude Code logs. Also bootstraps the DB cursor
- * that collect-token-metrics needs after the 2026.9 upgrade.
+ * that collect-token-metrics needs after the 2026.9 upgrade (a fresh
+ * instance with no counted OpenClaw usage needs no bootstrap: the
+ * collector starts its cursor empty).
  *
  * Modes (orchestration in lib/regen-run.ts):
  * - `--out DIR` (scratch): fresh scan of the range into DIR. Never reads or

@@ -3,21 +3,34 @@
  *
  * Slack poller read positions (the newest seen `ts` per channel).
  *
- * Read positions are instance STATE, not config: losing them only means
- * the next poll re-reads history (message files are deduped by `ts`).
- * They live in a JSON state file keyed by channel ID
- * (`{ "<channelId>": "<lastTs>" }`), never in the committed, curated
- * `channels.json`. See karmaniverous/jeeves-tools#184 for the
- * config/state classification.
+ * Read positions are instance STATE, not config
+ * (karmaniverous/jeeves-tools#184). Like the other pollers (calendar
+ * `lastSync-<email>`, github `watch-<user>`), they live in the
+ * jeeves-runner state store: namespace `slack`, one scalar key per
+ * channel, `lastTs-<channelId>`. They are never written to the
+ * committed, curated `channels.json`.
  *
- * Migration: a channel with no state entry falls back once to a legacy
- * `lastTs` still present in `channels.json`. The migrated positions are
- * saved to the state file before `channels.json` is rewritten without
- * them, so the fallback happens at most once.
+ * Absent state means "read the channel from the beginning". An
+ * unreachable store is an error: the poll run fails rather than
+ * silently re-reading every channel.
+ *
+ * Migration: a channel with no stored position falls back once to a
+ * legacy `lastTs` still present in `channels.json`. The migrated
+ * position is written to the store before `channels.json` is rewritten
+ * without it, so the fallback happens at most once.
  */
 
 import fs from 'node:fs';
-import path from 'node:path';
+
+import type { RunnerClient } from '@karmaniverous/jeeves-runner';
+
+/** Runner state namespace for Slack poller state. */
+export const SLACK_STATE_NAMESPACE = 'slack';
+
+/** Runner state key holding a channel's read position. */
+export function cursorKey(channelId: string): string {
+  return `lastTs-${channelId}`;
+}
 
 /** Read position per channel ID. */
 export type Cursors = Record<string, string>;
@@ -28,60 +41,56 @@ export interface ChannelEntry {
   lastTs?: unknown;
 }
 
-/** Write a file atomically: write a sibling temp file, then rename over. */
-export function writeFileAtomic(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmp = `${filePath}.${String(process.pid)}.tmp`;
-  try {
-    fs.writeFileSync(tmp, content, 'utf8');
-    fs.renameSync(tmp, filePath);
-  } catch (err) {
-    fs.rmSync(tmp, { force: true });
-    throw err;
-  }
-}
-
-/** Load read positions from the state file; a missing file is empty state. */
-export function loadCursors(stateFile: string): Cursors {
-  if (!fs.existsSync(stateFile)) return {};
-  const parsed: unknown = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`Slack cursor state is not a JSON object: ${stateFile}`);
-  }
-  const cursors: Cursors = {};
-  for (const [id, ts] of Object.entries(parsed)) {
-    if (typeof ts === 'string' && ts !== '') cursors[id] = ts;
-  }
-  return cursors;
-}
-
-/** Save read positions to the state file (atomic). */
-export function saveCursors(stateFile: string, cursors: Cursors): void {
-  writeFileAtomic(stateFile, `${JSON.stringify(cursors, null, 2)}\n`);
+/** Persist one channel's read position to the runner state store. */
+export function saveCursor(
+  client: RunnerClient,
+  channelId: string,
+  ts: string,
+): void {
+  client.setState(SLACK_STATE_NAMESPACE, cursorKey(channelId), ts);
 }
 
 /**
- * Seed `cursors` from legacy `lastTs` values in `channels` for channels
- * without a state entry. State always wins; `'0'` (never polled) is not
- * migrated. Returns the number of positions migrated.
+ * Load read positions for every channel in `channels` from the runner
+ * state store. A channel with no stored position but a legacy `lastTs`
+ * in `channels.json` is migrated: the value is written to the store
+ * immediately (before anything rewrites `channels.json`). `'0'` (never
+ * polled) is not migrated. Channels with neither are absent from the
+ * result and are read from the beginning.
+ *
+ * @throws If the store cannot be read or written.
  */
-export function migrateLegacyCursors(
-  cursors: Cursors,
+export function loadPollCursors(
+  client: RunnerClient,
   channels: Record<string, ChannelEntry>,
-): number {
+): { cursors: Cursors; migrated: number } {
+  const cursors: Cursors = {};
   let migrated = 0;
-  for (const [id, info] of Object.entries(channels)) {
-    if (id in cursors) continue;
-    const legacy = info.lastTs;
-    if (typeof legacy === 'string' && legacy !== '' && legacy !== '0') {
-      cursors[id] = legacy;
-      migrated++;
+  try {
+    for (const [id, info] of Object.entries(channels)) {
+      const stored = client.getState(SLACK_STATE_NAMESPACE, cursorKey(id));
+      if (stored) {
+        cursors[id] = stored;
+        continue;
+      }
+      const legacy = info.lastTs;
+      if (typeof legacy === 'string' && legacy !== '' && legacy !== '0') {
+        saveCursor(client, id, legacy);
+        cursors[id] = legacy;
+        migrated++;
+      }
     }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Slack read positions unavailable: runner state store error (${msg}). Aborting poll.`,
+      { cause: err },
+    );
   }
-  return migrated;
+  return { cursors, migrated };
 }
 
-/** Write `channels.json` (atomic) with every `lastTs` stripped. */
+/** Write `channels.json` with every `lastTs` stripped. */
 export function saveChannels<T extends ChannelEntry>(
   channelsFile: string,
   channels: Record<string, T>,
@@ -92,20 +101,5 @@ export function saveChannels<T extends ChannelEntry>(
     delete entry.lastTs;
     stripped[id] = entry;
   }
-  writeFileAtomic(channelsFile, `${JSON.stringify(stripped, null, 2)}\n`);
-}
-
-/**
- * Load read positions for a poll run: the state file, plus a one-time
- * migration of legacy `lastTs` values from `channels`. Migrated positions
- * are persisted immediately, before anything rewrites `channels.json`.
- */
-export function loadPollCursors(
-  stateFile: string,
-  channels: Record<string, ChannelEntry>,
-): { cursors: Cursors; migrated: number } {
-  const cursors = loadCursors(stateFile);
-  const migrated = migrateLegacyCursors(cursors, channels);
-  if (migrated > 0) saveCursors(stateFile, cursors);
-  return { cursors, migrated };
+  fs.writeFileSync(channelsFile, JSON.stringify(stripped, null, 2), 'utf8');
 }

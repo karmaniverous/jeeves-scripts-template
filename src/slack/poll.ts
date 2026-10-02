@@ -11,7 +11,8 @@
  * SLACK_WORKSPACE_CACHE_PATH from constants for workspace routing.
  *
  * Read positions (newest `ts` per channel) are instance state, kept in
- * SLACK_CURSORS_PATH; `channels.json` holds curated channel config only.
+ * the jeeves-runner state store (see lib/cursors.ts); `channels.json`
+ * holds curated channel config only. An unreachable store fails the run.
  */
 
 import fs from 'node:fs';
@@ -22,11 +23,14 @@ import {
   runScript,
   saveCache,
 } from '@karmaniverous/jeeves';
+import {
+  getRunnerClient,
+  type RunnerClient,
+} from '@karmaniverous/jeeves-runner';
 
 import {
   PRIMARY_WORKSPACE,
   SCRIPTS_DIR,
-  SLACK_CURSORS_PATH,
   SLACK_DOMAIN_DIR,
   SLACK_WORKSPACE_CACHE_PATH,
 } from '../lib/constants.js';
@@ -35,7 +39,7 @@ import {
   type Cursors,
   loadPollCursors,
   saveChannels,
-  saveCursors,
+  saveCursor,
 } from './lib/cursors.js';
 import {
   discoverChannels,
@@ -59,7 +63,7 @@ interface ChannelInfo {
   type: string;
   isPrivate?: boolean;
   isArchived?: boolean;
-  /** Legacy read position; migrated to SLACK_CURSORS_PATH, never written. */
+  /** Legacy read position; migrated to runner state, never written. */
   lastTs?: string;
   metadata?: Record<string, unknown>;
   isSlackConnect?: boolean;
@@ -445,12 +449,7 @@ async function autoDiscover(
   return added;
 }
 
-async function main(): Promise<void> {
-  if (!fs.existsSync(SLACK_DOMAIN_DIR)) {
-    console.log('[skip] Slack domain directory not configured');
-    return;
-  }
-
+async function pollAll(client: RunnerClient): Promise<void> {
   const tokensByAccount = getTokens();
   const accountNames = Object.keys(tokensByAccount);
   console.log(
@@ -477,10 +476,12 @@ async function main(): Promise<void> {
     ChannelInfo
   >;
   const userMap = loadUsers();
-  const { cursors, migrated } = loadPollCursors(SLACK_CURSORS_PATH, channels);
+  // Read positions come from the runner state store; legacy lastTs values
+  // are migrated into it here, before anything rewrites channels.json.
+  const { cursors, migrated } = loadPollCursors(client, channels);
   if (migrated > 0) {
     console.log(
-      `Migrated ${String(migrated)} legacy read position(s) from channels.json to ${SLACK_CURSORS_PATH}`,
+      `Migrated ${String(migrated)} legacy read position(s) from channels.json to runner state`,
     );
   }
 
@@ -509,6 +510,7 @@ async function main(): Promise<void> {
 
   for (const [id, info] of Object.entries(channels)) {
     await sleep(RATE_LIMIT_MS);
+    const before = cursors[id];
     try {
       const token = await resolveChannelToken(
         id,
@@ -526,15 +528,34 @@ async function main(): Promise<void> {
         `ERROR ${id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // Persist an advanced read position at once (outside the per-channel
+    // catch: a store failure aborts the run instead of being swallowed).
+    if (id in cursors && cursors[id] !== before) {
+      saveCursor(client, id, cursors[id]);
+    }
   }
 
-  // Persist read positions (state), then channel config, then workspace cache
-  saveCursors(SLACK_CURSORS_PATH, cursors);
+  // Persist channel config (never read positions), then workspace cache
   saveChannels(CHANNELS_FILE, channels);
   saveCache();
 
   if (totalWritten > 0) {
     console.log(`Total: ${String(totalWritten)} new messages`);
+  }
+}
+
+async function main(): Promise<void> {
+  if (!fs.existsSync(SLACK_DOMAIN_DIR)) {
+    console.log('[skip] Slack domain directory not configured');
+    return;
+  }
+
+  // Throws if the runner state store is not configured (JR_DB_PATH).
+  const client = getRunnerClient();
+  try {
+    await pollAll(client);
+  } finally {
+    client.close();
   }
 }
 

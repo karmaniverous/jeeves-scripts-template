@@ -1,8 +1,10 @@
 /**
- * Tests for Slack read-position state: positions load from the state
- * file, legacy `lastTs` in channels.json migrates once, positions are
- * written to the state file only (channels.json never regains `lastTs`),
- * writes are atomic, and missing files mean "read from the beginning".
+ * Tests for Slack read-position state in the jeeves-runner state store.
+ * Uses a real runner DB (runner migrations on a temp SQLite file) and the
+ * real `getRunnerClient()`: positions load from the store, a legacy
+ * `lastTs` in channels.json migrates into the store before channels.json
+ * is rewritten, channels.json never regains `lastTs`, an unreachable store
+ * fails loudly, and absent state means "read from the beginning".
  *
  * @module slack/lib/cursors.test
  */
@@ -11,164 +13,179 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  closeConnection,
+  createConnection,
+  getRunnerClient,
+  runMigrations,
+  type RunnerClient,
+} from '@karmaniverous/jeeves-runner';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  loadCursors,
+  cursorKey,
   loadPollCursors,
   saveChannels,
-  saveCursors,
-  writeFileAtomic,
+  saveCursor,
+  SLACK_STATE_NAMESPACE,
 } from './cursors.js';
 
 let dir: string;
-let stateFile: string;
+let dbPath: string;
 let channelsFile: string;
+let client: RunnerClient;
 
-const readJson = (file: string): unknown =>
-  JSON.parse(fs.readFileSync(file, 'utf8'));
+/** Read a stored position through an independent connection. */
+function storedTs(channelId: string): string | null {
+  const other = getRunnerClient(dbPath);
+  try {
+    return other.getState(SLACK_STATE_NAMESPACE, cursorKey(channelId));
+  } finally {
+    other.close();
+  }
+}
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slack-cursors-'));
-  stateFile = path.join(dir, 'state', 'runner', 'cursors', 'slack.json');
+  dbPath = path.join(dir, 'runner.sqlite');
   channelsFile = path.join(dir, 'channels.json');
+  const db = createConnection(dbPath);
+  runMigrations(db);
+  closeConnection(db);
+  client = getRunnerClient(dbPath);
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  client.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('loadCursors', () => {
-  it('returns empty state when the state file does not exist', () => {
-    expect(loadCursors(stateFile)).toEqual({});
-  });
+describe('loadPollCursors', () => {
+  it('reads positions from the runner store (slack / lastTs-<channelId>)', () => {
+    client.setState('slack', 'lastTs-C1', '1700000000.000100');
+    client.setState('slack', 'lastTs-C2', '1700000500.000200');
 
-  it('reads positions keyed by channel ID from the state file', () => {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(
-      stateFile,
-      JSON.stringify({ C1: '1700000000.000100', C2: '1700000001.000200' }),
-    );
-    expect(loadCursors(stateFile)).toEqual({
+    const { cursors, migrated } = loadPollCursors(client, {
+      C1: { name: 'one' },
+      C2: { name: 'two' },
+    });
+
+    expect(cursors).toEqual({
       C1: '1700000000.000100',
-      C2: '1700000001.000200',
+      C2: '1700000500.000200',
     });
-  });
-
-  it('rejects a state file that is not a JSON object', () => {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    fs.writeFileSync(stateFile, '["C1"]');
-    expect(() => loadCursors(stateFile)).toThrow(/not a JSON object/);
-  });
-});
-
-describe('loadPollCursors (legacy migration)', () => {
-  it('prefers the state file over a legacy lastTs in channels.json', () => {
-    saveCursors(stateFile, { C1: '1700000009.000000' });
-    const { cursors, migrated } = loadPollCursors(stateFile, {
-      C1: { lastTs: '1600000000.000000' },
-    });
-    expect(cursors).toEqual({ C1: '1700000009.000000' });
     expect(migrated).toBe(0);
   });
 
-  it('falls back to legacy lastTs once and persists it to the state file', () => {
-    saveCursors(stateFile, { C1: '1700000009.000000' });
-    const channels = {
-      C1: { name: 'a', lastTs: '1600000000.000000' },
-      C2: { name: 'b', lastTs: '1600000002.000000' },
-      C3: { name: 'never-polled', lastTs: '0' },
-      C4: { name: 'no-cursor' },
-    };
-
-    const { cursors, migrated } = loadPollCursors(stateFile, channels);
-
-    expect(migrated).toBe(1);
-    expect(cursors).toEqual({
-      C1: '1700000009.000000',
-      C2: '1600000002.000000',
+  it('absent state and no legacy value: channel is read from the beginning', () => {
+    const { cursors, migrated } = loadPollCursors(client, {
+      C1: {},
+      C2: { lastTs: '0' },
+      C3: { lastTs: '' },
     });
-    // Persisted before channels.json is rewritten, so the legacy value is
-    // not needed again.
-    expect(readJson(stateFile)).toEqual(cursors);
 
-    // After channels.json is rewritten (lastTs stripped), a second run
-    // still resumes from the migrated position.
-    saveChannels(channelsFile, channels);
-    const second = loadPollCursors(
-      stateFile,
-      readJson(channelsFile) as Record<string, { lastTs?: unknown }>,
-    );
-    expect(second.migrated).toBe(0);
-    expect(second.cursors.C2).toBe('1600000002.000000');
-  });
-
-  it('starts from the beginning when neither file has a position', () => {
-    const { cursors, migrated } = loadPollCursors(stateFile, {
-      C1: { name: 'a' },
-    });
     expect(cursors).toEqual({});
     expect(migrated).toBe(0);
-    expect(fs.existsSync(stateFile)).toBe(false);
+    // Nothing is invented in the store either.
+    expect(storedTs('C1')).toBeNull();
+    expect(storedTs('C2')).toBeNull();
+  });
+
+  it('prefers the stored position over a legacy channels.json lastTs', () => {
+    client.setState('slack', 'lastTs-C1', '1700000900.000000');
+
+    const { cursors, migrated } = loadPollCursors(client, {
+      C1: { lastTs: '1600000000.000000' },
+    });
+
+    expect(cursors).toEqual({ C1: '1700000900.000000' });
+    expect(migrated).toBe(0);
+    expect(storedTs('C1')).toBe('1700000900.000000');
+  });
+
+  it('migrates a legacy lastTs into the store before channels.json is rewritten', () => {
+    const legacy = {
+      C1: { name: 'one', lastTs: '1700000000.000100' },
+      C2: { name: 'two', lastTs: '0' },
+    };
+    fs.writeFileSync(channelsFile, JSON.stringify(legacy), 'utf8');
+
+    const { cursors, migrated } = loadPollCursors(client, legacy);
+
+    expect(migrated).toBe(1);
+    expect(cursors).toEqual({ C1: '1700000000.000100' });
+    // Durable in the store (visible to a separate connection) while
+    // channels.json is still untouched: loading alone never rewrites it.
+    expect(storedTs('C1')).toBe('1700000000.000100');
+    expect(fs.readFileSync(channelsFile, 'utf8')).toBe(JSON.stringify(legacy));
+
+    // channels.json rewritten without lastTs; the next run resumes from the store.
+    saveChannels(channelsFile, legacy);
+    const rewritten = JSON.parse(
+      fs.readFileSync(channelsFile, 'utf8'),
+    ) as Record<string, { name?: string }>;
+    const next = loadPollCursors(client, rewritten);
+    expect(next).toEqual({
+      cursors: { C1: '1700000000.000100' },
+      migrated: 0,
+    });
+  });
+
+  it('fails clearly when the store schema is missing (no silent from-beginning fallback)', () => {
+    const bare = getRunnerClient(path.join(dir, 'not-a-runner-db.sqlite'));
+    try {
+      expect(() =>
+        loadPollCursors(bare, { C1: { lastTs: '1700000000.000100' } }),
+      ).toThrow(/Slack read positions unavailable: runner state store error/);
+    } finally {
+      bare.close();
+    }
+  });
+
+  it('fails clearly when the store connection is gone', () => {
+    const gone = getRunnerClient(dbPath);
+    gone.close();
+    expect(() => loadPollCursors(gone, { C1: {} })).toThrow(
+      /Slack read positions unavailable/,
+    );
   });
 });
 
-describe('persisting a poll run', () => {
-  it('writes positions to the state file and never into channels.json', () => {
-    fs.writeFileSync(
-      channelsFile,
-      JSON.stringify({ C1: { name: 'a', lastTs: '1600000000.000000' } }),
-    );
-    const channels = readJson(channelsFile) as Record<
-      string,
-      { name: string; lastTs?: string; metadata?: Record<string, unknown> }
-    >;
-    const { cursors } = loadPollCursors(stateFile, channels);
+describe('saveCursor', () => {
+  it('writes the position to the store and overwrites on advance', () => {
+    saveCursor(client, 'C1', '1700000000.000100');
+    saveCursor(client, 'C1', '1700000999.000100');
+    expect(storedTs('C1')).toBe('1700000999.000100');
+  });
+});
 
-    // Simulate a poll advancing C1 and auto-discovering C2.
-    cursors.C1 = '1700000005.000000';
-    channels.C2 = { name: 'b', metadata: { project: 'x' } };
+describe('saveChannels', () => {
+  it('never writes lastTs to channels.json and keeps curated fields', () => {
+    const channels = {
+      C1: {
+        name: 'general',
+        type: 'channel',
+        lastTs: '1700000000.000100',
+        metadata: { topic: 'x' },
+        _account: 'default',
+      },
+      C2: { name: 'dm-U1', type: 'dm' },
+    };
 
-    saveCursors(stateFile, cursors);
     saveChannels(channelsFile, channels);
 
-    expect(readJson(stateFile)).toEqual({ C1: '1700000005.000000' });
-    expect(readJson(channelsFile)).toEqual({
-      C1: { name: 'a' },
-      C2: { name: 'b', metadata: { project: 'x' } },
+    const raw = fs.readFileSync(channelsFile, 'utf8');
+    expect(raw).not.toMatch(/lastTs/);
+    expect(JSON.parse(raw)).toEqual({
+      C1: {
+        name: 'general',
+        type: 'channel',
+        metadata: { topic: 'x' },
+        _account: 'default',
+      },
+      C2: { name: 'dm-U1', type: 'dm' },
     });
-    expect(fs.readFileSync(channelsFile, 'utf8')).not.toContain('lastTs');
-    // Caller's in-memory channel objects are not mutated.
-    expect(channels.C1.lastTs).toBe('1600000000.000000');
-  });
-
-  it('creates the state directory when it is missing', () => {
-    saveCursors(stateFile, { C1: '1.0' });
-    expect(readJson(stateFile)).toEqual({ C1: '1.0' });
-  });
-});
-
-describe('writeFileAtomic', () => {
-  it('replaces the file and leaves no temp file behind', () => {
-    const file = path.join(dir, 'x.json');
-    fs.writeFileSync(file, 'old');
-    writeFileAtomic(file, 'new');
-    expect(fs.readFileSync(file, 'utf8')).toBe('new');
-    expect(fs.readdirSync(dir)).toEqual(['x.json']);
-  });
-
-  it('leaves the original intact and cleans up when the rename fails', () => {
-    const file = path.join(dir, 'x.json');
-    fs.writeFileSync(file, 'old');
-    vi.spyOn(fs, 'renameSync').mockImplementation(() => {
-      throw new Error('rename failed');
-    });
-
-    expect(() => {
-      writeFileAtomic(file, 'new');
-    }).toThrow('rename failed');
-    expect(fs.readFileSync(file, 'utf8')).toBe('old');
-    expect(fs.readdirSync(dir)).toEqual(['x.json']);
+    // The caller's in-memory objects are not mutated.
+    expect(channels.C1.lastTs).toBe('1700000000.000100');
   });
 });

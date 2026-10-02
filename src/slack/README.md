@@ -20,7 +20,7 @@ flowchart LR
 
 - Loads Slack bot tokens from environment or `.openclaw/openclaw.json` / `.clawdbot/clawdbot.json` config files.
 - Auto-discovers all channel types the bot is a member of (public, private, IM, MPIM), excluding archived.
-- Fetches paginated conversation history since the last read position per channel. Read positions are instance state in `SLACK_CURSORS_PATH` (see [Read Positions](#read-positions-state)), not in `channels.json`.
+- Fetches paginated conversation history since the last read position per channel. Read positions are instance state in the jeeves-runner state store (see [Read Positions](#read-positions-state)), not in `channels.json`.
 - Fetches thread replies for threaded messages.
 - Enriches text-extractable file attachments (`text`, `post`, `snippet`) by fetching content via `files.info` + `url_private_download` and inlining as `files[].markdown`.
 - Persists structured `files[]` metadata (id, name, filetype, mimetype, size) alongside `hasFiles` flag.
@@ -32,16 +32,18 @@ flowchart LR
 
 ## Read Positions (State)
 
-The newest `ts` seen per channel is instance **state**, not config (karmaniverous/jeeves-tools#184). It lives in `SLACK_CURSORS_PATH` (default `/opt/jeeves/state/runner/cursors/slack-last-ts.json`) as `{ "<channelId>": "<lastTs>" }`, written atomically (temp file + rename) at the end of each poll.
+The newest `ts` seen per channel is instance **state**, not config (karmaniverous/jeeves-tools#184). Like the other pollers' cursors (calendar `lastSync-<email>`, github `watch-<user>`), it lives in the jeeves-runner state store (the runner DB, opened with `getRunnerClient()` from `JR_DB_PATH`, which the runner sets for its jobs): namespace `slack`, one scalar key per channel, `lastTs-<channelId>`. A channel's position is written as soon as it advances. Inspect with `GET http://127.0.0.1:1937/state/slack`.
 
-- No state file, or no entry for a channel: that channel is read from the beginning. Message files are deduped by `ts`, so this is safe; it only costs API calls.
-- Migration: a channel with no state entry but a legacy `lastTs` in `channels.json` resumes from that value. Migrated positions are saved to the state file before `channels.json` is rewritten without them, so the fallback runs once.
+- No stored position for a channel: that channel is read from the beginning. Message files are deduped by `ts`, so this is safe; it only costs API calls.
+- Store unreachable (no `JR_DB_PATH`, missing or uninitialised DB): the poll run fails (`FATAL`, exit 1). It never silently falls back to reading every channel from the beginning.
+- Migration: a channel with no stored position but a legacy `lastTs` in `channels.json` resumes from that value. Migrated positions are written to the store before `channels.json` is rewritten without them, so the fallback runs once.
 - There is no `.local.template`; nothing needs creating on a new instance.
 
 ## Prerequisites
 
 - Slack bot token configured (via environment variable or config file)
-- `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`, `SLACK_CURSORS_PATH` set in `constants.ts`
+- `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH` set in `constants.ts`
+- Run under jeeves-runner (or with `JR_DB_PATH` pointing at the runner DB) for read-position state
 
 | Job          | Schedule     |
 | ------------ | ------------ |
@@ -56,5 +58,5 @@ The newest `ts` seen per channel is instance **state**, not config (karmaniverou
 | `../lib/silo-router.ts` | `getBasePathForSlackWorkspace()` for output directory routing (see [Configuration Files](../lib/README.md#configuration-files) for `silo-routing.json` schema) |
 | `lib/map-helpers.cjs` | CommonJS helper for mapping Slack channel/user IDs to names. Used by watcher inference rules for enriching indexed message metadata |
 | `lib/channels.json` | Curated channel config: names, types, `metadata`, `_account`, Slack Connect flags (sanitized stubs in template). Committed. `poll.ts` adds auto-discovered channels; it never writes read positions here and strips any legacy `lastTs` on rewrite |
-| `lib/cursors.ts` | Read-position state: load/save `SLACK_CURSORS_PATH`, one-time legacy `lastTs` migration, atomic writes, the `channels.json` writer that strips `lastTs` |
+| `lib/cursors.ts` | Read-position state in the runner store (`slack` / `lastTs-<channelId>`): load, save, one-time legacy `lastTs` migration, and the `channels.json` writer that strips `lastTs` |
 | `lib/users.json` | Cached user ID → username mapping (sanitized stubs in template). Used by `poll.ts` for message enrichment |

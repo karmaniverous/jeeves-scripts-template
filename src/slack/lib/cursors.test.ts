@@ -303,4 +303,43 @@ describe('saveChannels', () => {
     // The caller's in-memory objects are not mutated.
     expect(channels.C1.lastTs).toBe('1700000000.000100');
   });
+
+  it('ends the file with exactly one trailing newline', () => {
+    saveChannels(channelsFile, { C1: { name: 'general', type: 'channel' } });
+
+    const raw = fs.readFileSync(channelsFile, 'utf8');
+    expect(raw.endsWith('}\n')).toBe(true);
+    expect(raw.endsWith('\n\n')).toBe(false);
+  });
+
+  it('rewrites an unchanged, committed-style map byte-identically', () => {
+    // Committed style: prettier JSON, 2-space indent, one trailing newline.
+    const committed = [
+      '{',
+      '  "C1": {',
+      '    "name": "general",',
+      '    "type": "channel",',
+      '    "metadata": {},',
+      '    "_account": "default"',
+      '  },',
+      '  "D1": {',
+      '    "name": "dm-U1",',
+      '    "type": "dm",',
+      '    "isPrivate": true,',
+      '    "_autoDiscovered": "2026-10-02T09:05:23.665Z"',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+    fs.writeFileSync(channelsFile, committed, 'utf8');
+    const before = fs.readFileSync(channelsFile);
+
+    const channels = JSON.parse(committed) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    saveChannels(channelsFile, channels);
+
+    expect(fs.readFileSync(channelsFile).equals(before)).toBe(true);
+  });
 });

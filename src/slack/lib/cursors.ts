@@ -154,7 +154,12 @@ export function loadPollCursors(
   return { cursors, migrated };
 }
 
-/** Write `channels.json` with every `lastTs` stripped. */
+/**
+ * Write `channels.json` with every `lastTs` stripped: the single writer
+ * of the file. Output matches the committed, prettier-formatted file
+ * (2-space indent, exactly one trailing newline), so rewriting an
+ * unchanged map is byte-identical and leaves no spurious diff.
+ */
 export function saveChannels<T extends ChannelEntry>(
   channelsFile: string,
   channels: Record<string, T>,
@@ -165,7 +170,11 @@ export function saveChannels<T extends ChannelEntry>(
     delete entry.lastTs;
     stripped[id] = entry;
   }
-  fs.writeFileSync(channelsFile, JSON.stringify(stripped, null, 2), 'utf8');
+  fs.writeFileSync(
+    channelsFile,
+    `${JSON.stringify(stripped, null, 2)}\n`,
+    'utf8',
+  );
 }
 
 /**

@@ -156,9 +156,12 @@ export function loadPollCursors(
 
 /**
  * Write `channels.json` with every `lastTs` stripped: the single writer
- * of the file. Output matches the committed, prettier-formatted file
+ * of the file. The caller's map is not mutated. Channel and field order
+ * are kept, and output matches the committed, prettier-formatted file
  * (2-space indent, exactly one trailing newline), so rewriting an
  * unchanged map is byte-identical and leaves no spurious diff.
+ *
+ * @throws If the file cannot be written.
  */
 export function saveChannels<T extends ChannelEntry>(
   channelsFile: string,

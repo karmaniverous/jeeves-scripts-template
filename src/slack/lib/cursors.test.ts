@@ -6,6 +6,7 @@
  * is rewritten, channels.json never regains `lastTs`, an unreachable store
  * (even with no channels) or a malformed position fails loudly, positions
  * load after discovery, and absent state means "read from the beginning".
+ * The `saveChannels()` writer is covered in `cursors.save-channels.test.ts`.
  *
  * @module slack/lib/cursors.test
  */
@@ -271,75 +272,5 @@ describe('preparePollState', () => {
       }),
     ).rejects.toThrow(/Slack read positions unavailable/);
     expect(fs.existsSync(channelsFile)).toBe(false);
-  });
-});
-
-describe('saveChannels', () => {
-  it('never writes lastTs to channels.json and keeps curated fields', () => {
-    const channels = {
-      C1: {
-        name: 'general',
-        type: 'channel',
-        lastTs: '1700000000.000100',
-        metadata: { topic: 'x' },
-        _account: 'default',
-      },
-      C2: { name: 'dm-U1', type: 'dm' },
-    };
-
-    saveChannels(channelsFile, channels);
-
-    const raw = fs.readFileSync(channelsFile, 'utf8');
-    expect(raw).not.toMatch(/lastTs/);
-    expect(JSON.parse(raw)).toEqual({
-      C1: {
-        name: 'general',
-        type: 'channel',
-        metadata: { topic: 'x' },
-        _account: 'default',
-      },
-      C2: { name: 'dm-U1', type: 'dm' },
-    });
-    // The caller's in-memory objects are not mutated.
-    expect(channels.C1.lastTs).toBe('1700000000.000100');
-  });
-
-  it('ends the file with exactly one trailing newline', () => {
-    saveChannels(channelsFile, { C1: { name: 'general', type: 'channel' } });
-
-    const raw = fs.readFileSync(channelsFile, 'utf8');
-    expect(raw.endsWith('}\n')).toBe(true);
-    expect(raw.endsWith('\n\n')).toBe(false);
-  });
-
-  it('rewrites an unchanged, committed-style map byte-identically', () => {
-    // Committed style: prettier JSON, 2-space indent, one trailing newline.
-    const committed = [
-      '{',
-      '  "C1": {',
-      '    "name": "general",',
-      '    "type": "channel",',
-      '    "metadata": {},',
-      '    "_account": "default"',
-      '  },',
-      '  "D1": {',
-      '    "name": "dm-U1",',
-      '    "type": "dm",',
-      '    "isPrivate": true,',
-      '    "_autoDiscovered": "2026-10-02T09:05:23.665Z"',
-      '  }',
-      '}',
-      '',
-    ].join('\n');
-    fs.writeFileSync(channelsFile, committed, 'utf8');
-    const before = fs.readFileSync(channelsFile);
-
-    const channels = JSON.parse(committed) as Record<
-      string,
-      Record<string, unknown>
-    >;
-    saveChannels(channelsFile, channels);
-
-    expect(fs.readFileSync(channelsFile).equals(before)).toBe(true);
   });
 });

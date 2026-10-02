@@ -9,6 +9,10 @@
  * writes individual JSON files per message to silo-routed directories.
  * Depends on PRIMARY_WORKSPACE, SLACK_DOMAIN_DIR, and
  * SLACK_WORKSPACE_CACHE_PATH from constants for workspace routing.
+ *
+ * Read positions (newest `ts` per channel) are instance state, kept in
+ * the jeeves-runner state store (see lib/cursors.ts); `channels.json`
+ * holds curated channel config only. An unreachable store fails the run.
  */
 
 import fs from 'node:fs';
@@ -19,6 +23,10 @@ import {
   runScript,
   saveCache,
 } from '@karmaniverous/jeeves';
+import {
+  getRunnerClient,
+  type RunnerClient,
+} from '@karmaniverous/jeeves-runner';
 
 import {
   PRIMARY_WORKSPACE,
@@ -27,6 +35,12 @@ import {
   SLACK_WORKSPACE_CACHE_PATH,
 } from '../lib/constants.js';
 import { getBasePathForSlackWorkspace } from '../lib/silo-router.js';
+import {
+  type Cursors,
+  preparePollState,
+  saveChannels,
+  saveCursor,
+} from './lib/cursors.js';
 import {
   discoverChannels,
   fetchHistory,
@@ -49,7 +63,8 @@ interface ChannelInfo {
   type: string;
   isPrivate?: boolean;
   isArchived?: boolean;
-  lastTs: string;
+  /** Legacy read position; migrated to runner state, never written. */
+  lastTs?: string;
   metadata?: Record<string, unknown>;
   isSlackConnect?: boolean;
   sharedTeams?: string[];
@@ -353,13 +368,14 @@ async function pollChannel(
   channelInfo: ChannelInfo,
   token: string,
   userMap: Record<string, string>,
+  cursors: Cursors,
 ): Promise<number> {
   const channelDir = await resolveChannelDir(
     channelId,
     channelInfo.name,
     token,
   );
-  const oldest = channelInfo.lastTs || '0';
+  const oldest = cursors[channelId] ?? '0';
 
   const { messages, newestTs } = await fetchHistory(channelId, oldest, token);
 
@@ -392,7 +408,7 @@ async function pollChannel(
   }
 
   if (maxTs > oldest) {
-    channelInfo.lastTs = maxTs;
+    cursors[channelId] = maxTs;
   }
 
   return written;
@@ -415,7 +431,6 @@ async function autoDiscover(
       type: ch.is_im ? 'dm' : ch.is_mpim ? 'mpim' : 'channel',
       isPrivate: ch.is_private ?? ch.is_im ?? false,
       isArchived: false,
-      lastTs: '0',
       metadata: {},
       _autoDiscovered: new Date().toISOString(),
       _account: account,
@@ -434,12 +449,31 @@ async function autoDiscover(
   return added;
 }
 
-async function main(): Promise<void> {
-  if (!fs.existsSync(SLACK_DOMAIN_DIR)) {
-    console.log('[skip] Slack domain directory not configured');
-    return;
+/** Auto-discover new channels for every account; returns the number added. */
+async function discoverAll(
+  channels: Record<string, ChannelInfo>,
+  tokensByAccount: Record<string, string>,
+): Promise<number> {
+  let total = 0;
+  for (const [account, token] of Object.entries(tokensByAccount)) {
+    try {
+      const discovered = await autoDiscover(channels, token, account);
+      if (discovered > 0) {
+        console.log(
+          `Auto-discovered ${String(discovered)} new channel(s) for account "${account}"`,
+        );
+      }
+      total += discovered;
+    } catch (err) {
+      console.error(
+        `Channel discovery failed for account "${account}" (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
+  return total;
+}
 
+async function pollAll(client: RunnerClient): Promise<void> {
   const tokensByAccount = getTokens();
   const accountNames = Object.keys(tokensByAccount);
   console.log(
@@ -466,32 +500,26 @@ async function main(): Promise<void> {
     ChannelInfo
   >;
   const userMap = loadUsers();
-
-  // Auto-discover new channels per token
-  let totalDiscovered = 0;
-  for (const [account, token] of Object.entries(tokensByAccount)) {
-    try {
-      const discovered = await autoDiscover(channels, token, account);
-      if (discovered > 0) {
-        console.log(
-          `Auto-discovered ${String(discovered)} new channel(s) for account "${account}"`,
-        );
-      }
-      totalDiscovered += discovered;
-    } catch (err) {
-      console.error(
-        `Channel discovery failed for account "${account}" (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-  if (totalDiscovered > 0) {
-    fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2), 'utf8');
+  // Discover first, then load read positions from the runner state store
+  // for the full channel set (migrating legacy lastTs values) before
+  // anything rewrites channels.json.
+  const { cursors, migrated } = await preparePollState(
+    client,
+    CHANNELS_FILE,
+    channels,
+    () => discoverAll(channels, tokensByAccount),
+  );
+  if (migrated > 0) {
+    console.log(
+      `Migrated ${String(migrated)} legacy read position(s) from channels.json to runner state`,
+    );
   }
 
   let totalWritten = 0;
 
   for (const [id, info] of Object.entries(channels)) {
     await sleep(RATE_LIMIT_MS);
+    const before = cursors[id];
     try {
       const token = await resolveChannelToken(
         id,
@@ -499,7 +527,7 @@ async function main(): Promise<void> {
         tokensByAccount,
         teamToAccount,
       );
-      const written = await pollChannel(id, info, token, userMap);
+      const written = await pollChannel(id, info, token, userMap, cursors);
       if (written > 0) {
         console.log(`${id} (${info.name}): ${String(written)} new`);
         totalWritten += written;
@@ -509,14 +537,34 @@ async function main(): Promise<void> {
         `ERROR ${id}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // Persist an advanced read position at once (outside the per-channel
+    // catch: a store failure aborts the run instead of being swallowed).
+    if (id in cursors && cursors[id] !== before) {
+      saveCursor(client, id, cursors[id]);
+    }
   }
 
-  // Persist updated cursors and workspace cache
-  fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2), 'utf8');
+  // Persist channel config (never read positions), then workspace cache
+  saveChannels(CHANNELS_FILE, channels);
   saveCache();
 
   if (totalWritten > 0) {
     console.log(`Total: ${String(totalWritten)} new messages`);
+  }
+}
+
+async function main(): Promise<void> {
+  if (!fs.existsSync(SLACK_DOMAIN_DIR)) {
+    console.log('[skip] Slack domain directory not configured');
+    return;
+  }
+
+  // Throws if the runner state store is not configured (JR_DB_PATH).
+  const client = getRunnerClient();
+  try {
+    await pollAll(client);
+  } finally {
+    client.close();
   }
 }
 

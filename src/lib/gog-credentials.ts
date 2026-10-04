@@ -11,6 +11,11 @@
  *   delegated mailbox as `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json`,
  *   with the base64 `=` padding stripped.
  *
+ * Older gog builds (e.g. v0.9.x) have no `data/` folder and register
+ * service-account mailboxes in the config root,
+ * `<GOG_CONFIG_DIR>/sa-<base64(email)>.json`. Both locations are
+ * searched, `data/` first.
+ *
  * An instance may use either or both. Service-account-only instances
  * have no OAuth client file, so checking `GOG_CLIENT_PATH` alone is
  * wrong.
@@ -26,9 +31,17 @@ import path from 'node:path';
 
 import { GOG_CLIENT_PATH, GOG_CONFIG_DIR } from './constants.js';
 
-/** Directory where gog registers service-account mailboxes. */
+/** Directory where current gog registers service-account mailboxes. */
 export function gogServiceAccountDir(configDir = GOG_CONFIG_DIR): string {
   return path.join(configDir, 'data');
+}
+
+/**
+ * Directories searched for service-account mailboxes, in order:
+ * `<configDir>/data` (current gog), then `<configDir>` (gog v0.9.x).
+ */
+export function gogServiceAccountDirs(configDir = GOG_CONFIG_DIR): string[] {
+  return [gogServiceAccountDir(configDir), configDir];
 }
 
 /** File name gog uses for a service-account mailbox registration. */
@@ -37,7 +50,7 @@ export function serviceAccountFileName(email: string): string {
   return `sa-${encoded}.json`;
 }
 
-/** Full path where gog registers `email` as a service-account mailbox. */
+/** Full path where current gog registers `email` as a service-account mailbox. */
 export function serviceAccountKeyPath(
   email: string,
   configDir = GOG_CONFIG_DIR,
@@ -50,14 +63,18 @@ export function serviceAccountKeyPath(
 
 /**
  * Path of the service-account registration for `email`, or `null` when
- * gog has none.
+ * gog has none. Searches {@link gogServiceAccountDirs} in order.
  */
 export function findServiceAccountFile(
   email: string,
   configDir = GOG_CONFIG_DIR,
 ): string | null {
-  const p = serviceAccountKeyPath(email, configDir);
-  return fs.existsSync(p) ? p : null;
+  const name = serviceAccountFileName(email);
+  for (const d of gogServiceAccountDirs(configDir)) {
+    const p = path.join(d, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 /** Which gog credentials are present. */
@@ -79,12 +96,11 @@ export function detectGogCredentials(
       ? GOG_CLIENT_PATH
       : path.join(configDir, path.basename(GOG_CLIENT_PATH)),
   );
-  const saDir = gogServiceAccountDir(configDir);
-  const serviceAccount =
-    fs.existsSync(saDir) &&
-    fs
-      .readdirSync(saDir)
-      .some((f) => f.startsWith('sa-') && f.endsWith('.json'));
+  const serviceAccount = gogServiceAccountDirs(configDir).some(
+    (d) =>
+      fs.existsSync(d) &&
+      fs.readdirSync(d).some((f) => f.startsWith('sa-') && f.endsWith('.json')),
+  );
   return { oauthClient, serviceAccount, any: oauthClient || serviceAccount };
 }
 
@@ -111,6 +127,6 @@ export function requireGogCredentials(
   throw new Error(
     `${job}: ${String(accountCount)} Google account(s) configured but no gog credentials found ` +
       `(no OAuth client at ${GOG_CLIENT_PATH} and no service-account mailboxes in ` +
-      `${gogServiceAccountDir()}). Configure gog or remove the accounts from pipeline-config.json.`,
+      `${gogServiceAccountDirs().join(' or ')}). Configure gog or remove the accounts from pipeline-config.json.`,
   );
 }

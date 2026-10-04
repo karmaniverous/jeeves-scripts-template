@@ -51,12 +51,19 @@ describe('findServiceAccountFile', () => {
     expect(findServiceAccountFile('me@example.com', dir)).toBe(p);
   });
 
-  it('ignores a registration in the config root (old wrong location)', () => {
+  it('finds a registration in the config root (gog v0.9.x layout)', () => {
+    const p = path.join(dir, serviceAccountFileName('me@example.com'));
+    fs.writeFileSync(p, '{}');
+    expect(findServiceAccountFile('me@example.com', dir)).toBe(p);
+  });
+
+  it('prefers data/ when both locations have a registration', () => {
     fs.writeFileSync(
       path.join(dir, serviceAccountFileName('me@example.com')),
       '{}',
     );
-    expect(findServiceAccountFile('me@example.com', dir)).toBeNull();
+    const p = writeSa('me@example.com');
+    expect(findServiceAccountFile('me@example.com', dir)).toBe(p);
   });
 
   it('returns null for an unregistered email', () => {
@@ -73,6 +80,33 @@ describe('detectGogCredentials', () => {
       serviceAccount: true,
       any: true,
     });
+  });
+
+  it('SA-only in the config root (gog v0.9.x layout)', () => {
+    fs.writeFileSync(
+      path.join(dir, serviceAccountFileName('me@example.com')),
+      '{}',
+    );
+    expect(detectGogCredentials(dir)).toEqual({
+      oauthClient: false,
+      serviceAccount: true,
+      any: true,
+    });
+  });
+
+  it('SA in both data/ and the config root', () => {
+    fs.writeFileSync(
+      path.join(dir, serviceAccountFileName('root@example.com')),
+      '{}',
+    );
+    writeSa('data@example.com');
+    expect(detectGogCredentials(dir).serviceAccount).toBe(true);
+    expect(findServiceAccountFile('root@example.com', dir)).toBe(
+      path.join(dir, serviceAccountFileName('root@example.com')),
+    );
+    expect(findServiceAccountFile('data@example.com', dir)).toBe(
+      serviceAccountKeyPath('data@example.com', dir),
+    );
   });
 
   it('OAuth-only: credentials.json, no data/', () => {
@@ -114,5 +148,6 @@ describe('requireGogCredentials', () => {
     expect(() => requireGogCredentials('email/poll', 2, none)).toThrow(
       /email\/poll: 2 Google account\(s\) configured but no gog credentials/,
     );
+    expect(() => requireGogCredentials('email/poll', 2, none)).toThrow(/ or /);
   });
 });

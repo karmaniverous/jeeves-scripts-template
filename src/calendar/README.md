@@ -26,7 +26,7 @@ flowchart LR
 
 - Google credentials via `gog`, under `GOG_CONFIG_DIR` (`GOG_HOME`, default `/opt/jeeves/config/gogcli`):
   - `calendar: { "tokenFile": ... }` accounts: OAuth client at `GOG_CLIENT_PATH` (`<GOG_CONFIG_DIR>/credentials.json`);
-  - `calendar: { "serviceAccount": "auto" }` accounts: the service-account mailbox gog registers at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json` (padding stripped), resolved by `src/lib/gog-credentials.ts`.
+  - `calendar: { "serviceAccount": "auto" }` accounts: the service-account mailbox gog registers at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json` (padding stripped; checked first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`), resolved by `src/lib/gog-credentials.ts`.
 - Calendar accounts listed in `pipeline-config.json` (see [Configuration Files](../lib/README.md#configuration-files) for schema and creation instructions)
 - If calendar accounts are configured but gog has neither an OAuth client nor any service-account mailbox, the run fails (non-zero exit).
 

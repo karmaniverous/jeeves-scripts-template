@@ -10,7 +10,8 @@
  * hash-based change detection. Requires CREDENTIALS_DIR, GOG_CLIENT_PATH,
  * and GOG_CONFIG_DIR from constants for Google auth setup. Service-account
  * accounts (`calendar.serviceAccount: "auto"`) use the key gog registered
- * at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json`.
+ * at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json` (or, for older gog
+ * builds without `data/`, in the `<GOG_CONFIG_DIR>` root).
  */
 
 import crypto from 'node:crypto';

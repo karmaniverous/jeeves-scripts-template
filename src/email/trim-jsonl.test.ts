@@ -57,6 +57,16 @@ describe('trimJsonlFiles', () => {
     expect(fs.readFileSync(other, 'utf8')).toBe(line(30) + '\n');
   });
 
+  it('skips entries it cannot read', () => {
+    fs.mkdirSync(path.join(dir, 'folder.jsonl'));
+    const p = write('account.jsonl', [line(30), line(1)]);
+    trimJsonlFiles(dir, 7, NOW);
+    expect(fs.statSync(path.join(dir, 'folder.jsonl')).isDirectory()).toBe(
+      true,
+    );
+    expect(fs.readFileSync(p, 'utf8')).toBe(line(1) + '\n');
+  });
+
   it('is a no-op for a missing directory', () => {
     expect(() => {
       trimJsonlFiles(path.join(dir, 'missing'), 7, NOW);

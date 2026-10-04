@@ -48,7 +48,7 @@ export function seenKey(account: string): string {
 /** Load per-account scalar state (last-poll timestamp) from SQLite. */
 export function loadScalarState(
   account: string,
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'getState'>,
 ): { account: string; updatedAt: string | null } {
   const stateJson = client.getState('email', account + '.state');
   return stateJson
@@ -62,7 +62,7 @@ export function loadScalarState(
 /** Persist per-account scalar state with an updated timestamp. */
 export function saveScalarState(
   state: { account: string; updatedAt: string | null },
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'setState'>,
 ): void {
   state.updatedAt = nowIso();
   client.setState('email', state.account + '.state', JSON.stringify(state));

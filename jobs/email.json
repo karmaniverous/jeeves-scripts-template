@@ -34,5 +34,18 @@
     "enabled": true,
     "domain": "email",
     "prerequisite": "Gmail via gog (OAuth client or service-account mailboxes)"
+  },
+  {
+    "id": "email-backfill-historical",
+    "name": "Email Historical Backfill",
+    "script": "src/email/google-workspace/backfill-historical.ts",
+    "args": ["--live"],
+    "schedule": { "freq": "hourly", "interval": 1, "timezone": "UTC" },
+    "description": "Paced Gmail backfill: each run searches one window (emailConfig.backfill.windowDays) per account, walking back until emailConfig.backfill.lookbackDays, then no-ops. Cursor in runner state (email-backfill/cursor-<email>).",
+    "overlap_policy": "skip",
+    "timeout_seconds": 1800,
+    "enabled": true,
+    "domain": "email",
+    "prerequisite": "Gmail via gog (OAuth client or service-account mailboxes) + emailConfig.backfill (accounts, lookbackDays, windowDays) in pipeline-config.json"
   }
 ]

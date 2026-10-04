@@ -76,10 +76,25 @@ const DigestConfigSchema = z.object({
   slackChannelId: z.string(),
 });
 
+/**
+ * Paced historical Gmail backfill (email/google-workspace/
+ * backfill-historical.ts). Optional: absent means the backfill job has
+ * nothing configured and fails if run without CLI args. No defaults.
+ */
+const BackfillConfigSchema = z.object({
+  /** Gmail accounts to backfill. */
+  accounts: z.array(z.string().min(1)).min(1),
+  /** How far back from now to walk, in days. */
+  lookbackDays: z.number().int().positive(),
+  /** Days searched per run, per account. */
+  windowDays: z.number().int().positive(),
+});
+
 const EmailConfigSchema = z.object({
   reportOnly: z.boolean(),
   receipt: ReceiptConfigSchema,
   digest: DigestConfigSchema,
+  backfill: BackfillConfigSchema.optional(),
 });
 
 const PipelineConfigSchema = z.object({
@@ -96,6 +111,7 @@ export type AccountConfig = z.infer<typeof AccountSchema>;
 export type ImapConnection = z.infer<typeof ImapConnectionSchema>;
 export type BucketsConfig = z.infer<typeof BucketsSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
+export type BackfillConfig = z.infer<typeof BackfillConfigSchema>;
 
 // ── Cached loader ───────────────────────────────────────────────────
 

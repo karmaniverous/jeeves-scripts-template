@@ -33,11 +33,12 @@ flowchart TD
 
 ## Runner Jobs
 
-| Job                   | Script                              | Schedule     |
-| --------------------- | ----------------------------------- | ------------ |
-| `poll-email`          | `poll.ts`                           | Every 11 min |
-| `download-email`      | `google-workspace/download.ts`      | Every 17 min |
-| `drain-email-updates` | `google-workspace/drain-updates.ts` | Every 5 min  |
+| Job | Script | Schedule |
+| --- | --- | --- |
+| `email-poll` | `poll.ts` | Every 11 min |
+| `email-download` | `google-workspace/download.ts` | Every 13 min |
+| `email-drain-updates` | `google-workspace/drain-updates.ts` | Every 17 min |
+| `email-backfill-historical` | `google-workspace/backfill-historical.ts --live` | Hourly; needs `emailConfig.backfill` (not auto-registered) |
 
 ## Shared Modules
 
@@ -110,7 +111,8 @@ Gmail polling via the `gog` CLI (Google OAuth). Handles search, classification, 
 | `email-triage.ts` | Pure-function classification helpers (receipt, junk, bucket, importance) |
 | `backfill-bodies.ts` | One-shot: finds cached threads missing downloaded message bodies and enqueues them |
 | `backfill-classification.ts` | One-shot: classifies threads missing receipt/junk/bucket fields and enqueues label actions |
-| `backfill-historical.ts` | One-shot: searches Gmail for threads in a date range predating the pipeline and processes them |
+| `backfill-historical.ts` | Paced job: each run searches one window per account (all result pages), walking back from the newest unprocessed point to the lookback limit, then no-ops. Settings from `emailConfig.backfill` (`accounts`, `lookbackDays`, `windowDays`) or `--accounts` / `--lookback-days` / `--window-days`; no defaults. Dry-run unless `--live`. Cursor: runner state `email-backfill` / `cursor-<email>`. Logic in `backfill-window.ts` |
+| `label-actions.ts` | `reportOnly` gating: label-action enqueueing (poll, backfill) and the drain-updates go/no-go |
 | `backfill-labels.ts` | One-shot: enqueues label actions for threads with classification but no applied labels |
 | `inventory.ts` | Prints a summary table of thread directories, message files, and state counts per account |
 

@@ -183,5 +183,42 @@ describe('pipeline-config', () => {
       expect(carol?.imap?.host).toBe('imap.example.com');
       expect(carol?.folders).toEqual(['INBOX', 'Sent']);
     });
+
+    it('leaves emailConfig.backfill undefined when absent (no defaults)', () => {
+      expect(loadPipelineConfig().emailConfig.backfill).toBeUndefined();
+    });
+
+    it('accepts a complete emailConfig.backfill', () => {
+      const backfill = {
+        accounts: ['alice@example.com'],
+        lookbackDays: 90,
+        windowDays: 7,
+      };
+      vi.spyOn(fs, 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          ...VALID_CONFIG,
+          emailConfig: { ...VALID_CONFIG.emailConfig, backfill },
+        }),
+      );
+      resetPipelineConfig();
+      expect(loadPipelineConfig().emailConfig.backfill).toEqual(backfill);
+    });
+
+    it('rejects an incomplete or invalid emailConfig.backfill', () => {
+      for (const backfill of [
+        { accounts: [], lookbackDays: 90, windowDays: 7 },
+        { accounts: ['a@x.com'], lookbackDays: 90 },
+        { accounts: ['a@x.com'], lookbackDays: 90, windowDays: 0 },
+      ]) {
+        vi.spyOn(fs, 'readFileSync').mockReturnValue(
+          JSON.stringify({
+            ...VALID_CONFIG,
+            emailConfig: { ...VALID_CONFIG.emailConfig, backfill },
+          }),
+        );
+        resetPipelineConfig();
+        expect(() => loadPipelineConfig()).toThrow();
+      }
+    });
   });
 });

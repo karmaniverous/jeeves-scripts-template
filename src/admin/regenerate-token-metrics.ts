@@ -10,8 +10,9 @@
  *
  * Modes (orchestration in lib/regen-run.ts):
  * - `--out DIR` (scratch): fresh scan of the range into DIR. Never reads or
- *   writes runner state or the live bucket store. Refuses if DIR already
- *   holds buckets in the range (merge-into would double count).
+ *   writes runner state or the live bucket store. Refuses if DIR is the
+ *   live store (TOKEN_METRICS_DIR, directly or through a symlink) or
+ *   already holds buckets in the range (merge-into would double count).
  * - live, no `--to`: rebuild [from, last closed hour). Backs up and deletes
  *   the range's buckets, rescans every transcript from seq 0 (counting only
  *   usage at/after --from) and REPLACES the DB and Claude Code cursors. Use
@@ -44,6 +45,7 @@ import {
   SESSIONS_DIR,
   SLACK_DM_NAMES_CACHE_PATH,
   SLACK_USERS_PATH,
+  TOKEN_METRICS_DIR,
 } from '../lib/constants.js';
 import {
   bucketPath,
@@ -58,6 +60,7 @@ import { scanClaudeCodeSessions } from './lib/claude-code-session-scan.js';
 import { applyDmNames, gatewayMemberName } from './lib/dm-name-sources.js';
 import { loadRateCard } from './lib/rate-card.js';
 import { type RegenDeps, runRegen } from './lib/regen-run.js';
+import { isSamePath } from './lib/same-path.js';
 import { openTokenMetricsState } from './lib/token-metrics-state.js';
 
 const TAG = '[regen]';
@@ -82,6 +85,7 @@ const deps: RegenDeps = {
   scanClaudeCode: scanClaudeCodeSessions,
   knownModels: () => loadRateCard().models,
   bucketExists: (hour, dir) => fs.existsSync(bucketPath(hour, dir)),
+  isLiveStore: (dir) => isSamePath(dir, TOKEN_METRICS_DIR),
   backup: (hours, dryRun) => backupBucketFiles(hours, dryRun, TAG),
   remove: (hours, dryRun) => deleteBucketFiles(hours, dryRun, TAG),
   flush: flushBuckets,

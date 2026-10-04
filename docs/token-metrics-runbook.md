@@ -110,7 +110,7 @@ Pause the `collect-token-metrics` job while a live regeneration runs.
 
 - Unset or not a date: the run is **refused** with a message naming the variable, even with `--allow-pre-upgrade`.
 - `--from` earlier than it: **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. `--allow-pre-upgrade` overrides this check only; use it only with owner approval.
-- Scratch runs (`--out`) cannot rewrite history, so they ignore the cutoff entirely: no variable and no `--allow-pre-upgrade` are needed to scan pre-upgrade hours into a scratch directory.
+- Scratch runs (`--out`) cannot rewrite history, so they ignore the cutoff entirely: no variable and no `--allow-pre-upgrade` are needed to scan pre-upgrade hours into a scratch directory. That holds because an `--out` that resolves to `TOKEN_METRICS_DIR` (the same path, or reached through a symlink) is refused before anything is scanned, and an `--out` already holding buckets in the range is refused too.
 
 The hourly collector and the reports never read it.
 

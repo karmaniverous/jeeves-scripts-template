@@ -5,7 +5,8 @@
  * adapters; tests inject fakes). Rebuilds hourly buckets for [from, to)
  * from the OpenClaw agent DB plus Claude Code logs:
  * - scratch (`out`): fresh scan into an empty directory; never touches
- *   runner state or the live store.
+ *   runner state or the live store. An `out` that resolves to the live
+ *   store (directly or through a symlink) is refused.
  * - live, unbounded: scan from seq 0 / reset CC cursors, back up then delete
  *   the range's buckets, flush, and REPLACE the DB and CC cursors.
  * - live, bounded (`to`): rebuild from already-counted events only
@@ -17,7 +18,8 @@
  *
  * Live runs (dry or not) need the instance's upgrade cutoff and refuse a
  * pre-cutoff `from` unless `allowPreUpgrade` (regen-guard.ts). Scratch runs
- * cannot rewrite history, so they neither need the cutoff nor check it.
+ * cannot rewrite history (their `out` is never the live store), so they
+ * neither need the cutoff nor check it.
  */
 
 import {
@@ -72,6 +74,8 @@ export interface RegenDeps {
   ) => { ccProcessed: number };
   knownModels: () => Record<string, unknown>;
   bucketExists: (hour: string, dir: string) => boolean;
+  /** True when `dir` resolves to the live bucket store. */
+  isLiveStore: (dir: string) => boolean;
   backup: (hours: string[], dryRun: boolean) => number;
   remove: (hours: string[], dryRun: boolean) => number;
   flush: (buckets: Map<string, HourlyBucket>, dir?: string) => number;
@@ -233,6 +237,10 @@ export async function runRegen(
     : deps.cutoffMs;
   if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs)
     return fail('Invalid or empty range.');
+  if (args.out && deps.isLiveStore(args.out))
+    return fail(
+      `--out ${args.out} is the live bucket store; scratch runs need a separate directory.`,
+    );
   if (!args.out) {
     const refused = checkRegenFrom(
       fromMs,

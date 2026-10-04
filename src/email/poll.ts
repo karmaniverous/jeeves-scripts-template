@@ -3,7 +3,8 @@
  * @module poll
  *
  * Unified email poller — dispatches by account type. Accounts without an
- * `imap` block are polled via the gog CLI (Gmail OAuth). Accounts with an
+ * `imap` block are polled via the gog CLI (Gmail via OAuth client or
+ * service-account mailboxes). Accounts with an
  * `imap` block are polled via direct IMAP connection.
  *
  * Called on a schedule as an entry-point script. For gog accounts: searches
@@ -14,7 +15,9 @@
  * Depends on EMAIL_EVENTS_DIR, emailConfig.reportOnly, and bucket domain
  * config from pipeline-config. Missing config causes classification to
  * return null buckets (labels skipped). When reportOnly is true, threads
- * are still ingested but no Gmail label actions are enqueued. gog
+ * are still ingested but no Gmail label actions (classification or
+ * curation-signal) are enqueued. Search output is schema-validated by
+ * google-workspace/gmail-search.ts. gog
  * accounts work with an OAuth client or service-account mailboxes; if
  * gog accounts are configured and neither exists, the run fails.
  */
@@ -48,6 +51,10 @@ import {
   isReceiptCandidate,
   looksImportantBySummary,
 } from './google-workspace/email-triage.js';
+import {
+  parseSearchPage,
+  searchArgs,
+} from './google-workspace/gmail-search.js';
 import { enqueueLabelActions } from './google-workspace/label-actions.js';
 import { pollImapAccount } from './imap/poll.js';
 
@@ -99,25 +106,13 @@ async function main(): Promise<void> {
       const account = acctCfg.email;
       const state = loadScalarState(account, client);
 
-      const out = gogWithRetry(
-        [
-          'gmail',
-          'search',
-          query,
-          '--max',
-          String(max),
-          '--json',
-          '--account',
-          account,
-        ],
-        { retries: 2, backoffMs: 5000 },
+      const { threads } = parseSearchPage(
+        gogWithRetry(searchArgs(account, query, max), {
+          retries: 2,
+          backoffMs: 5000,
+        }),
+        account,
       );
-      const payload = out
-        ? (JSON.parse(out) as {
-            threads?: Array<Record<string, unknown>>;
-          })
-        : {};
-      const threads = payload.threads ?? [];
       let newC = 0,
         updC = 0,
         fetchC = 0,
@@ -125,17 +120,16 @@ async function main(): Promise<void> {
         lblC = 0;
 
       for (const t of threads) {
-        const tid = (t.threadId as string) || (t.id as string) || '';
-        if (!tid) continue;
-        const subj = (t.subject as string) || '';
-        const snip = (t.snippet as string) || '';
-        const from = (t.from as string) || '';
-        const to = (t.to as string) || '';
-        const date = (t.date as string) || null;
-        const mc = Number.isFinite(t.messageCount)
-          ? (t.messageCount as number)
-          : null;
-        const labels = Array.isArray(t.labels) ? (t.labels as string[]) : [];
+        const {
+          threadId: tid,
+          subject: subj,
+          snippet: snip,
+          from,
+          to,
+          date,
+          messageCount: mc,
+          labels,
+        } = t;
 
         const rc = isReceiptCandidate(subj, snip, from, account);
         const jc = !rc && isJunkCandidate(subj, snip, from);
@@ -262,6 +256,7 @@ async function main(): Promise<void> {
             labels,
             query,
             client,
+            reportOnly,
           });
           fetchC++;
           msgC += r.newMessages;

@@ -18,7 +18,8 @@
  * runner job (`jobs/email.json`, `email-backfill-historical`) passes it.
  *
  * Cursor: runner state namespace `email-backfill`, key `cursor-<email>`.
- * See backfill-window.ts.
+ * See backfill-settings.ts (settings), backfill-window.ts (cursor and
+ * window processing) and gmail-search.ts (validated paging).
  */
 
 import { ensureDir, runScript } from '@karmaniverous/jeeves';
@@ -28,7 +29,8 @@ import { EMAIL_EVENTS_DIR } from '../../lib/constants.js';
 import { gogWithRetry } from '../../lib/gog.js';
 import { requireGogCredentials } from '../../lib/gog-credentials.js';
 import { loadPipelineConfig } from '../../lib/pipeline-config.js';
-import { backfillAccount, resolveBackfillSettings } from './backfill-window.js';
+import { resolveBackfillSettings } from './backfill-settings.js';
+import { backfillAccount } from './backfill-window.js';
 
 function main(): void {
   const live = process.argv.includes('--live');

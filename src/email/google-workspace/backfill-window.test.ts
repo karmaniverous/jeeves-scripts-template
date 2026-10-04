@@ -7,8 +7,7 @@ vi.mock('./email-fetch.js', () => ({ fetchThreadMetadata: vi.fn() }));
 vi.mock('./email-triage.js', () => ({
   classifyBucket: () => 'Bucket',
   computeLabelsToApply: () => ['Receipts'],
-  isJunkCandidate: () => false,
-  isReceiptCandidate: () => true,
+  classifyCandidates: () => ({ receiptCandidate: true, junkCandidate: false }),
 }));
 
 import type { EmailStoreClient } from '../email-state.js';

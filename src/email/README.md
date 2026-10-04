@@ -178,7 +178,7 @@ Gmail polling via the `gog` CLI (OAuth client or service-account mailboxes). Han
 | `email-fetch.ts` | Fetch full thread metadata from Gmail, update cache/provenance, enqueue for download; curation signals are enqueued via `label-actions.ts` (none in `reportOnly`) |
 | `gmail-search.ts` | Zod-validated parsing of `gog gmail search --json` pages (`parseSearchPage`) and lazy paging over `nextPageToken` (`searchThreadPages`, throws on a repeated token). Used by `poll.ts` and `backfill-window.ts` |
 | `message-record.ts` | Builds the per-message JSON record and `thread.json` summary that `download.ts` writes |
-| `email-triage.ts` | Pure-function classification helpers (receipt, junk, bucket, importance) |
+| `email-triage.ts` | Pure-function classification helpers (receipt, junk, bucket, importance); `classifyCandidates()` is the one receipt/junk rule every classifying path uses |
 | `backfill-bodies.ts` | One-shot: finds cached threads missing downloaded message bodies and enqueues them. Dry-run unless `--live` |
 | `backfill-classification.ts` | One-shot: classifies threads missing receipt/junk/bucket fields and enqueues label actions. Dry-run unless `--live`; `--reclassify-buckets` also recomputes the bucket of threads already classified |
 | `backfill-historical.ts` | Paced job: each run searches one window per account (all result pages), walking back from the newest unprocessed point to the lookback limit, then no-ops. Settings from `emailConfig.backfill` (`accounts`, `lookbackDays`, `windowDays`) or `--accounts` / `--lookback-days` / `--window-days`; no defaults. Dry-run unless `--live`. Cursor: runner state `email-backfill` / `cursor-<email>`. Settings in `backfill-settings.ts`, window processing in `backfill-window.ts` |
@@ -191,7 +191,7 @@ Gmail polling via the `gog` CLI (OAuth client or service-account mailboxes). Han
 ### Classification
 
 - **Receipt candidate**: matches financial receipt/invoice keywords in subject/snippet/from
-- **Junk candidate**: matches newsletter/promo/marketing keywords (never set on a receipt candidate)
+- **Junk candidate**: matches newsletter/promo/marketing keywords, and is never set on a receipt candidate. `poll`, `backfill-historical` and the one-shot `backfill-classification.ts` (including `--reclassify-buckets`, which keeps stored flags) all classify through `classifyCandidates()` in `email-triage.ts`, so the rule holds on every path.
 - **Bucket**: domain-based classification via pipeline-config. Bucket names come only from `buckets` (`priority` order, then buckets that appear only in `domains`; see `getBucketNames()`), and each bucket name is also its Gmail label. Code hard-codes no bucket name.
 - Labels (`receipt`, `junk`, the bucket name) are computed by `computeLabelsToApply()`, enqueued on `email-updates` only when the classification changes, and recorded per thread (`labelApplied`) so each is applied once.
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { CREDENTIALS_DIR, IMAP_SECRETS_DIR } from './constants.js';
+import { CREDENTIALS_DIR } from './constants.js';
 import {
   imapSecretPath,
   isSafeSecretRef,
@@ -19,12 +19,6 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
-});
-
-describe('IMAP_SECRETS_DIR', () => {
-  it('is the imap folder under CREDENTIALS_DIR', () => {
-    expect(IMAP_SECRETS_DIR).toBe(path.join(CREDENTIALS_DIR, 'imap'));
-  });
 });
 
 describe('isSafeSecretRef', () => {
@@ -97,9 +91,13 @@ describe('resolveImapPassword', () => {
     );
   });
 
-  it('refuses an unsafe ref before touching the file system', () => {
-    expect(() => resolveImapPassword({ secretRef: '../x' }, dir)).toThrow(
-      /plain file name/,
-    );
+  it('never reads a file outside the secrets directory', () => {
+    // A readable file one level up: a path-joining resolver would return it.
+    const secrets = path.join(dir, 'imap');
+    fs.mkdirSync(secrets);
+    fs.writeFileSync(path.join(dir, 'outside'), 'stolen');
+    expect(() =>
+      resolveImapPassword({ secretRef: '../outside' }, secrets),
+    ).toThrow(/plain file name/);
   });
 });

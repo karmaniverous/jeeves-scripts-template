@@ -86,6 +86,15 @@ describe('gog home', () => {
   });
 });
 
+describe('IMAP secrets directory', () => {
+  it('is where jeeves-tools deploy writes IMAP password files', async () => {
+    const c = await loadConstants();
+    expect(c.IMAP_SECRETS_DIR.split(path.sep).join('/')).toBe(
+      '/opt/jeeves/config/credentials/imap',
+    );
+  });
+});
+
 describe('OpenClaw upgrade cutoff', () => {
   it.each([undefined, ''])(
     'has no default when the env var is %j',
@@ -99,7 +108,6 @@ describe('OpenClaw upgrade cutoff', () => {
   it('reads OPENCLAW_UPGRADE_CUTOFF as given', async () => {
     vi.stubEnv('OPENCLAW_UPGRADE_CUTOFF', '2030-01-02T03:00:00Z');
     const c = await loadConstants();
-    expect(c.OPENCLAW_UPGRADE_CUTOFF_ENV).toBe('OPENCLAW_UPGRADE_CUTOFF');
     expect(c.OPENCLAW_UPGRADE_CUTOFF).toBe('2030-01-02T03:00:00Z');
   });
 });

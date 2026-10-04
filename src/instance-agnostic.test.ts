@@ -23,9 +23,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Known instance / customer identifiers, matched case-insensitively.
- * Extendable: add a new entry whenever a new instance or customer name
- * must never appear in the template.
+ * Known instance / customer identifiers. Each entry carries its own flags:
+ * names are matched case-insensitively; the short org acronyms used as
+ * bucket / label names are matched case-sensitively as whole words, so
+ * ordinary lower-case text (`vcs`, `.vc`) and identifiers that merely
+ * contain the letters do not trip the guard. Extendable: add a new entry
+ * whenever a new instance or customer name must never appear in the
+ * template.
  */
 export const INSTANCE_DENYLIST: readonly RegExp[] = [
   /bcofa/i,
@@ -36,6 +40,9 @@ export const INSTANCE_DENYLIST: readonly RegExp[] = [
   /credit-?genius/i,
   /bidbuild/i,
   /williscroft/i,
+  /tribify/i,
+  /\bVC\b/,
+  /\bJGS\b/,
 ];
 
 /**

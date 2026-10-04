@@ -77,7 +77,7 @@ Single source of truth for which gog credentials exist. Depends on `GOG_CLIENT_P
 
 Resolves IMAP passwords. Depends on `IMAP_SECRETS_DIR` (`<CREDENTIALS_DIR>/imap`). Never logs a password or puts one in an error.
 
-- `isSafeSecretRef(ref)` — `true` for a plain file name: starts with a letter or digit, then letters, digits, `.`, `_`, `-`; no path separators, no `..`, at most 255 characters (used by the pipeline-config schema)
+- `isSafeSecretRef(ref)` — `true` for a valid secret name, the same rule jeeves-tools uses for instance `secrets`: 1-64 characters, letters, digits, `_` and `-`, starting with a letter or digit (no dots or path separators; used by the pipeline-config schema)
 - `imapSecretPath(ref, dir?)` — `<dir>/<ref>`, throwing on an unsafe ref
 - `resolveImapPassword(password, dir?)` — a literal string as is; `{ secretRef }` read from its file with trailing newlines removed; throws, naming the ref and path, when the file is missing, unreadable or empty
 

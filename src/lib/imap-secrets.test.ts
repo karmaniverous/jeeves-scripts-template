@@ -28,16 +28,30 @@ describe('IMAP_SECRETS_DIR', () => {
 });
 
 describe('isSafeSecretRef', () => {
-  it.each(['carol', 'mail.example.com', 'acct_1-prod'])('accepts %s', (ref) => {
-    expect(isSafeSecretRef(ref)).toBe(true);
-  });
-
-  it.each(['', '.', '..', 'a/b', 'a\\b', '../x', 'a..b', '.env', 'a b'])(
-    'rejects %j',
+  it.each(['carol', 'mail-example-com', 'acct_1-prod', 'a'.repeat(64)])(
+    'accepts %s',
     (ref) => {
-      expect(isSafeSecretRef(ref)).toBe(false);
+      expect(isSafeSecretRef(ref)).toBe(true);
     },
   );
+
+  // Same rule as jeeves-tools secret names: no dots, at most 64 characters.
+  it.each([
+    '',
+    '.',
+    '..',
+    'a/b',
+    'a\\b',
+    '../x',
+    'a..b',
+    '.env',
+    'a b',
+    'mail.example.com',
+    '_lead',
+    'a'.repeat(65),
+  ])('rejects %j', (ref) => {
+    expect(isSafeSecretRef(ref)).toBe(false);
+  });
 });
 
 describe('imapSecretPath', () => {

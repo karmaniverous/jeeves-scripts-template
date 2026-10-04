@@ -65,9 +65,9 @@ afterEach(() => {
 
 describe('accounts[].imap.password', () => {
   it('accepts { secretRef } without a warning', () => {
-    withPasswords({ secretRef: 'mail-example.com' });
+    withPasswords({ secretRef: 'mail-example-com' });
     expect(loadPipelineConfig().accounts[0].imap?.password).toEqual({
-      secretRef: 'mail-example.com',
+      secretRef: 'mail-example-com',
     });
     expect(warn).not.toHaveBeenCalled();
   });
@@ -92,7 +92,8 @@ describe('accounts[].imap.password', () => {
     ['an embedded ..', 'a..b'],
     ['a leading dot', '.hidden'],
     ['an empty name', ''],
-    ['an over-long name', 'a'.repeat(256)],
+    ['an over-long name', 'a'.repeat(65)],
+    ['a dot (jeeves-tools secret names have none)', 'mail.example.com'],
   ])('rejects a secretRef with %s', (_label, secretRef) => {
     withPasswords({ secretRef });
     expect(() => loadPipelineConfig()).toThrow(

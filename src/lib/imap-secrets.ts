@@ -25,22 +25,26 @@ import { IMAP_SECRETS_DIR } from './constants.js';
 /** `imap.password` in pipeline config: a secret reference or a literal. */
 export type ImapPassword = string | { secretRef: string };
 
-const SECRET_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/**
+ * The jeeves-tools secret-name rule (instance config `secrets` map): 1-64
+ * characters, letters, digits, `_` and `-`, starting with a letter or digit.
+ * Kept identical so every secretRef the template accepts can be provisioned
+ * by jeeves-tools (`config set <instance> secrets.<name> --stdin`); no dots,
+ * so never `.`, `..` or a path separator.
+ */
+const SECRET_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
- * True when `ref` is a safe file name inside the secrets directory: starts
- * with a letter or digit, then only letters, digits, `.`, `_` and `-`
- * (so no path separators), never `..`, at most 255 characters.
+ * True when `ref` is a valid secret name (see {@link SECRET_REF_PATTERN}),
+ * and so a safe file name inside the secrets directory.
  */
 export function isSafeSecretRef(ref: string): boolean {
-  return (
-    ref.length <= 255 && SECRET_REF_PATTERN.test(ref) && !ref.includes('..')
-  );
+  return SECRET_REF_PATTERN.test(ref);
 }
 
-/** Message used when a secretRef is not a safe file name. */
+/** Message used when a secretRef is not a valid secret name. */
 export const UNSAFE_SECRET_REF_MESSAGE =
-  'secretRef must be a plain file name (letters, digits, ".", "_", "-"; no path separators or "..")';
+  'secretRef must be a plain file name of 1-64 characters: letters, digits, "_" and "-", starting with a letter or digit (no "/", "\\", "." or "..")';
 
 /**
  * Path of the file holding the secret named `ref`.

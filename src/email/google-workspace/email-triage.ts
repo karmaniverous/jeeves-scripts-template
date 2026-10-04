@@ -14,6 +14,7 @@
 
 import {
   getBucketForDomain,
+  getBucketNames,
   getBucketPriority,
   loadPipelineConfig,
 } from '../../lib/pipeline-config.js';
@@ -59,8 +60,9 @@ function extractDomains(to: string): string[] {
 }
 
 /**
- * Assign an org bucket (e.g. VC, JGS) based on account domain, TO-domain
- * priority, or content matching. Returns null if no bucket matches.
+ * Assign a configured bucket (`buckets` in pipeline-config) based on
+ * account domain, TO-domain priority, or content matching. Returns null
+ * if no bucket matches.
  */
 export function classifyBucket(
   account: string,
@@ -156,6 +158,26 @@ export function computeLabelsToApply(params: {
   if (params.junkCandidate && !applied['junk']) labels.push('junk');
   if (params.bucket && !applied[params.bucket]) labels.push(params.bucket);
   return labels;
+}
+
+/**
+ * `bucket` if it is a currently configured bucket, else null (e.g. a
+ * bucket stored in thread state under an older config).
+ */
+export function configuredBucket(
+  bucket: string | null | undefined,
+): string | null {
+  return bucket && getBucketNames().includes(bucket) ? bucket : null;
+}
+
+/**
+ * Zeroed per-label counters for the classification labels: `receipt`,
+ * `junk`, then each configured bucket.
+ */
+export function newLabelCounts(): Record<string, number> {
+  return Object.fromEntries(
+    ['receipt', 'junk', ...getBucketNames()].map((l) => [l, 0]),
+  );
 }
 
 /** Build the store key for a pending follow-up entry. */

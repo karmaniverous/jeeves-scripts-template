@@ -67,10 +67,48 @@ const BucketsSchema = z.object({
   priority: z.array(z.string()),
 });
 
-const ReceiptConfigSchema = z.object({
-  forwardJGS: z.boolean(),
-  sparkReceiptsForwardTo: z.string(),
-});
+/** Deprecated name of `emailConfig.receipt.forwardEnabled`. */
+const LEGACY_RECEIPT_FORWARD_KEY = 'forwardJGS';
+
+/**
+ * Map the deprecated `receipt.forwardJGS` key to `forwardEnabled` so
+ * existing pipeline-config.json files keep loading. When both are
+ * present, `forwardEnabled` wins and the legacy key is ignored. Either
+ * way a one-line deprecation warning is logged (once per process,
+ * because the loaded config is cached).
+ */
+function migrateReceiptConfig(raw: unknown): unknown {
+  if (
+    raw === null ||
+    typeof raw !== 'object' ||
+    !(LEGACY_RECEIPT_FORWARD_KEY in raw)
+  )
+    return raw;
+  const { [LEGACY_RECEIPT_FORWARD_KEY]: legacy, ...rest } = raw as Record<
+    string,
+    unknown
+  >;
+  if ('forwardEnabled' in rest) {
+    console.warn(
+      `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated and ignored because forwardEnabled is set; remove it.`,
+    );
+    return rest;
+  }
+  console.warn(
+    `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated; rename it to forwardEnabled.`,
+  );
+  return { ...rest, forwardEnabled: legacy };
+}
+
+const ReceiptConfigSchema = z.preprocess(
+  migrateReceiptConfig,
+  z.object({
+    /** Whether detected receipts are forwarded to `sparkReceiptsForwardTo`. */
+    forwardEnabled: z.boolean(),
+    /** Address receipts are forwarded to. */
+    sparkReceiptsForwardTo: z.string(),
+  }),
+);
 
 const DigestConfigSchema = z.object({
   slackChannelId: z.string(),
@@ -182,6 +220,18 @@ export function getGmailAccounts(): string[] {
     .map((a) => a.email);
   return [
     ...new Set([...polled, ...(config.emailConfig.backfill?.accounts ?? [])]),
+  ];
+}
+
+/**
+ * Every configured bucket name, deduplicated: `buckets.priority` order
+ * first, then any bucket that appears only in `buckets.domains`. Bucket
+ * names double as Gmail labels.
+ */
+export function getBucketNames(): string[] {
+  const { buckets } = loadPipelineConfig();
+  return [
+    ...new Set([...buckets.priority, ...buckets.domains.map((d) => d.bucket)]),
   ];
 }
 

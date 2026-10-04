@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getBucketForDomain,
+  getBucketNames,
   getBucketPriority,
   getCalendarAccounts,
   getEmailAccounts,
@@ -55,7 +56,7 @@ const VALID_CONFIG = {
   },
   emailConfig: {
     reportOnly: false,
-    receipt: { forwardJGS: true, sparkReceiptsForwardTo: '' },
+    receipt: { forwardEnabled: true, sparkReceiptsForwardTo: '' },
     digest: { slackChannelId: 'C1234' },
   },
 };
@@ -128,6 +129,36 @@ describe('pipeline-config', () => {
         'alice@example.com',
         'archive@example.com',
       ]);
+    });
+  });
+
+  describe('getBucketNames', () => {
+    it('lists priority buckets first, then domain-only buckets, deduplicated', () => {
+      vi.spyOn(fs, 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          ...VALID_CONFIG,
+          buckets: {
+            domains: [
+              { pattern: 'a.example.com', bucket: 'DomainOnly' },
+              { pattern: 'b.example.com', bucket: 'Other' },
+            ],
+            priority: ['Other', 'Example'],
+          },
+        }),
+      );
+      resetPipelineConfig();
+      expect(getBucketNames()).toEqual(['Other', 'Example', 'DomainOnly']);
+    });
+
+    it('is empty with no buckets configured', () => {
+      vi.spyOn(fs, 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          ...VALID_CONFIG,
+          buckets: { domains: [], priority: [] },
+        }),
+      );
+      resetPipelineConfig();
+      expect(getBucketNames()).toEqual([]);
     });
   });
 

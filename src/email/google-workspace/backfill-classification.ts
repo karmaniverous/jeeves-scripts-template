@@ -7,8 +7,10 @@
  *
  * Run manually as an entry-point script. Iterates all thread-state entries
  * in SQLite, reads thread.json for subject/from/snippet, runs triage
- * classification, and enqueues addLabel actions to `email-updates`.
+ * classification, and enqueues addLabel actions to `email-updates` via
+ * label-actions.ts (none when emailConfig.reportOnly is true).
  * Supports --live and --reclassify-buckets flags; defaults to dry-run.
+ * Label counters cover receipt, junk and the configured buckets.
  *
  * Depends on pipeline-config bucket domain mappings for classification
  * and email-state/email-cache for thread data access.
@@ -16,10 +18,13 @@
 
 import path from 'node:path';
 
-import { nowIso, readJson, runScript } from '@karmaniverous/jeeves';
+import { readJson, runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { getEmailAccounts } from '../../lib/pipeline-config.js';
+import {
+  getEmailAccounts,
+  loadPipelineConfig,
+} from '../../lib/pipeline-config.js';
 import { getThreadsPath, type ThreadCache } from '../email-cache.js';
 import {
   getThreadState,
@@ -32,7 +37,9 @@ import {
   computeLabelsToApply,
   isJunkCandidate,
   isReceiptCandidate,
+  newLabelCounts,
 } from './email-triage.js';
+import { enqueueLabelActions } from './label-actions.js';
 
 function main(): void {
   const live = process.argv.includes('--live');
@@ -40,6 +47,10 @@ function main(): void {
   console.log(
     `Mode: ${live ? 'LIVE' : 'DRY-RUN'}${reclassifyBuckets ? ' (reclassify buckets)' : ''}\n`,
   );
+
+  const reportOnly = loadPipelineConfig().emailConfig.reportOnly;
+  if (live && reportOnly)
+    console.log('reportOnly: no Gmail label actions enqueued\n');
 
   const accounts = getEmailAccounts();
   const client = getRunnerClient();
@@ -49,14 +60,7 @@ function main(): void {
     let grandAlready = 0;
     let grandClassified = 0;
     let grandLabels = 0;
-    const counts: Record<string, number> = {
-      receipt: 0,
-      junk: 0,
-      VC: 0,
-      JGS: 0,
-      Tribify: 0,
-      Personal: 0,
-    };
+    const counts = newLabelCounts();
 
     for (const account of accounts) {
       const keys = client.listItemKeys('email', seenKey(account));
@@ -132,28 +136,19 @@ function main(): void {
           labelApplied: applied,
         });
 
-        const msgId =
-          (ts.seenMessageIds && Object.keys(ts.seenMessageIds)[0]) || tid;
-        const stamp = nowIso();
-        const updatedApplied: Record<string, string> = { ...applied };
-
-        for (const lbl of labelsToApply) {
-          if (live) {
-            client.enqueue('email-updates', {
-              account,
-              messageId: msgId,
-              threadId: tid,
-              action: 'addLabel',
-              label: lbl,
-              source: 'backfill-classification',
-              reason: 'Backfill classification for pre-Phase-1 thread',
-              createdAt: stamp,
-            });
-            updatedApplied[lbl] = stamp;
-          }
-          counts[lbl]++;
-          acctLabels++;
-        }
+        const r = enqueueLabelActions(client, {
+          account,
+          messageId:
+            (ts.seenMessageIds && Object.keys(ts.seenMessageIds)[0]) || tid,
+          threadId: tid,
+          labels: labelsToApply,
+          source: 'backfill-classification',
+          reason: 'Backfill classification for pre-Phase-1 thread',
+          reportOnly: !live || reportOnly,
+        });
+        const updatedApplied = { ...applied, ...r.applied };
+        for (const lbl of labelsToApply) counts[lbl] = (counts[lbl] ?? 0) + 1;
+        acctLabels += labelsToApply.length;
 
         // Update thread state with classification + labelApplied
         if (live) {

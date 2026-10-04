@@ -9,7 +9,7 @@
   "emailConfig": {
     "reportOnly": false,
     "receipt": {
-      "forwardJGS": false,
+      "forwardEnabled": false,
       "sparkReceiptsForwardTo": ""
     },
     "digest": {

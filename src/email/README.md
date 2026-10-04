@@ -125,7 +125,7 @@ Gmail polling via the `gog` CLI (OAuth client or service-account mailboxes). Han
 
 - **Receipt candidate**: matches financial receipt/invoice keywords in subject/snippet/from
 - **Junk candidate**: matches newsletter/promo/marketing keywords
-- **Bucket**: domain-based classification via pipeline-config (e.g., VC, Sales, Personal)
+- **Bucket**: domain-based classification via pipeline-config (bucket names come from `buckets` in pipeline-config; each bucket name is also its Gmail label)
 - Labels are computed by `computeLabelsToApply()` and applied idempotently
 
 ## Output Format

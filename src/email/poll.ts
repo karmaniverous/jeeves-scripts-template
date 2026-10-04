@@ -10,7 +10,7 @@
  * Called on a schedule as an entry-point script. For gog accounts: searches
  * via `gog gmail search`, runs triage classification, enqueues for download.
  * For IMAP accounts: connects, fetches, parses MIME, writes directly to disk.
- * Trims old JSONL logs after 7 days.
+ * Trims old JSONL logs after 7 days (trim-jsonl.ts).
  *
  * Depends on EMAIL_EVENTS_DIR, emailConfig.reportOnly, and bucket domain
  * config from pipeline-config. Missing config causes classification to
@@ -22,7 +22,6 @@
  * gog accounts are configured and neither exists, the run fails.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -57,6 +56,7 @@ import {
 } from './google-workspace/gmail-search.js';
 import { enqueueLabelActions } from './google-workspace/label-actions.js';
 import { pollImapAccount } from './imap/poll.js';
+import { trimJsonlFiles } from './trim-jsonl.js';
 
 async function main(): Promise<void> {
   const config = loadPipelineConfig();
@@ -283,39 +283,6 @@ async function main(): Promise<void> {
     trimJsonlFiles(EMAIL_EVENTS_DIR, 7);
   } finally {
     client.close();
-  }
-}
-
-function trimJsonlFiles(dir: string, maxDays: number): void {
-  if (!fs.existsSync(dir)) return;
-  const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000;
-
-  for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith('.jsonl')) continue;
-    if (entry.startsWith('_runs-')) continue;
-
-    const filePath = path.join(dir, entry);
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      continue;
-    }
-
-    const kept: string[] = [];
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const obj = JSON.parse(line) as { at?: string };
-        if (obj.at && new Date(obj.at).getTime() >= cutoff) {
-          kept.push(line);
-        }
-      } catch {
-        kept.push(line);
-      }
-    }
-
-    fs.writeFileSync(filePath, kept.length > 0 ? kept.join('\n') + '\n' : '');
   }
 }
 

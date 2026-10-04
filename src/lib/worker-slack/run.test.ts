@@ -38,7 +38,7 @@ import { SPAWN_WORKER_PATH } from '../constants.js';
 import { dispatchWithSlack } from './run.js';
 import type { WorkerSlackDeps } from './worker-slack-job.js';
 
-const OPTIONS = { jobId: 'vc-ops-ceo-agenda' };
+const OPTIONS = { jobId: 'acme-ops-agenda' };
 const SLACK = { accountId: 'vc', posts: [] };
 const FAKE_IO = { read: vi.fn(), send: vi.fn(), pin: vi.fn(), edit: vi.fn() };
 
@@ -126,7 +126,7 @@ describe('dispatchWithSlack', () => {
     ['a bad account id', { accountId: 'vc; rm -rf', posts: [] }],
     [
       'a zero read limit',
-      { reads: [{ target: 'C0B2Z734KSP', label: 'x', limit: 0 }] },
+      { reads: [{ target: 'C000EXAMPLE1', label: 'x', limit: 0 }] },
     ],
     ['a channel name target', { posts: [{ target: '#ops', purpose: 'p' }] }],
   ])('rejects %s before any gateway call', async (_name, slack) => {

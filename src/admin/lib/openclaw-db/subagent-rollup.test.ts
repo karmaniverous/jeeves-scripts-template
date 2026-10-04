@@ -5,7 +5,7 @@ import { isSubagentKey, runnerChannel } from './subagent-rollup.js';
 import type { SessionMeta } from './types.js';
 
 const OPS_CEO: SessionMeta = {
-  sessionKey: 'agent:main:slack:channel:c0aujrk8dtm',
+  sessionKey: 'agent:main:slack:channel:c000example2',
   channelName: '#ops-ceo',
 };
 const MAIN: SessionMeta = { sessionKey: 'agent:main:main' };
@@ -35,20 +35,20 @@ describe('subagent rollup', () => {
 
   it('rolls up to a Slack DM, Telegram group or cron root', () => {
     const dm: SessionMeta = {
-      sessionKey: 'agent:main:slack:direct:u0ab7j9rchf',
-      peerName: 'Jason Williscroft',
+      sessionKey: 'agent:main:slack:direct:u000example2',
+      peerName: 'Alex Example',
     };
     const cron: SessionMeta = {
       sessionKey: 'agent:main:cron:bf9f',
       label: 'Cron: Nightly',
     };
-    expect(keyOf(sub('e', dm, 'x'))).toBe('slack:dm:jason-williscroft');
+    expect(keyOf(sub('e', dm, 'x'))).toBe('slack:dm:alex-example');
     expect(keyOf(sub('f', sub('g', cron, 'y')))).toBe('cron:Nightly');
   });
 
   it('resolves a deleted Slack parent from its session key alone', () => {
     const deleted: SessionMeta = {
-      sessionKey: 'agent:main:slack:channel:c0aujrk8dtm:thread:1.2',
+      sessionKey: 'agent:main:slack:channel:c000example2:thread:1.2',
       channelName: '#ops-ceo',
       missing: true,
     };
@@ -58,8 +58,8 @@ describe('subagent rollup', () => {
   it('falls back to the own label when a subagent parent is deleted', () => {
     const gone: SessionMeta = { ...sub('gone', OPS_CEO), missing: true };
     gone.parent = undefined;
-    expect(keyOf(sub('i', gone, 'worker-vc-ops-c'))).toBe(
-      'subagent:label:worker-vc-ops-c',
+    expect(keyOf(sub('i', gone, 'worker-acme-ops-c'))).toBe(
+      'subagent:label:worker-acme-ops-c',
     );
     expect(keyOf(sub('j', gone, 'review PR'))).toBe('subagent:label:review PR');
     expect(keyOf(sub('k', gone))).toBeUndefined();
@@ -72,7 +72,9 @@ describe('subagent rollup', () => {
   });
 
   it('buckets runner workers under main as runner:<job>', () => {
-    expect(keyOf(sub('m', MAIN, 'worker-vc-ops-c'))).toBe('runner:vc-ops-c');
+    expect(keyOf(sub('m', MAIN, 'worker-acme-ops-c'))).toBe(
+      'runner:acme-ops-c',
+    );
     expect(channelFromMeta(sub('n', MAIN, 'worker-refresh-'))?.name).toBe(
       'Runner: refresh-',
     );
@@ -105,7 +107,7 @@ describe('subagent rollup', () => {
 
 describe('runnerChannel / isSubagentKey', () => {
   it.each([
-    ['worker-vc-ops-t', 'runner:vc-ops-t'],
+    ['worker-acme-ops-t', 'runner:acme-ops-t'],
     ['worker-', undefined],
     ['workers-x', undefined],
     ['worker-a b', undefined],

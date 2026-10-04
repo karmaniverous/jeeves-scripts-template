@@ -35,10 +35,10 @@ await dispatchWithSlack(
   task,
   { jobId: 'my-job', thinking: 'low', timeout: 600 },
   {
-    reads: [{ target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 30 }],
+    reads: [{ target: 'C000EXAMPLE1', label: '#ops-ceo', limit: 30 }],
     posts: [
       {
-        target: 'C0B2Z734KSP',
+        target: 'C000EXAMPLE1',
         purpose: "today's agenda (pin it), plus the quick-links edit",
         pin: true,
         editTs: ['1789000000.000100'], // the pinned quick-links message only

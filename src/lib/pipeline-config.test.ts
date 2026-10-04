@@ -51,7 +51,7 @@ const VALID_CONFIG = {
   },
   refs: {
     'notion.inboxId': 'abc-123',
-    'paths.bin': 'C:\\bin\\tool.exe',
+    'paths.bin': '/usr/local/bin/tool',
   },
   emailConfig: {
     reportOnly: false,
@@ -135,7 +135,7 @@ describe('pipeline-config', () => {
   describe('getRef', () => {
     it('returns the value for a known key', () => {
       expect(getRef('notion.inboxId')).toBe('abc-123');
-      expect(getRef('paths.bin')).toBe('C:\\bin\\tool.exe');
+      expect(getRef('paths.bin')).toBe('/usr/local/bin/tool');
     });
 
     it('throws for a missing key', () => {
@@ -167,7 +167,7 @@ describe('pipeline-config', () => {
     it('rejects account without type', () => {
       const bad = {
         ...VALID_CONFIG,
-        accounts: [{ email: 'x@y.com', emailPolling: true }],
+        accounts: [{ email: 'x@example.com', emailPolling: true }],
       };
       vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify(bad));
       resetPipelineConfig();
@@ -207,8 +207,8 @@ describe('pipeline-config', () => {
     it('rejects an incomplete or invalid emailConfig.backfill', () => {
       for (const backfill of [
         { accounts: [], lookbackDays: 90, windowDays: 7 },
-        { accounts: ['a@x.com'], lookbackDays: 90 },
-        { accounts: ['a@x.com'], lookbackDays: 90, windowDays: 0 },
+        { accounts: ['a@example.com'], lookbackDays: 90 },
+        { accounts: ['a@example.com'], lookbackDays: 90, windowDays: 0 },
       ]) {
         vi.spyOn(fs, 'readFileSync').mockReturnValue(
           JSON.stringify({

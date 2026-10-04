@@ -161,20 +161,20 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 {
   "accounts": [
     {
-      "email": "user@company.com",
+      "email": "user@example.com",
       "type": "gmail",
       "calendar": { "serviceAccount": "auto" },
       "emailPolling": true
     },
     {
-      "email": "user@imap-provider.com",
+      "email": "user@imap.example.com",
       "type": "imap",
       "emailPolling": true,
       "imap": {
         "host": "imap.provider.com",
         "port": 993,
         "tls": true,
-        "user": "user@imap-provider.com",
+        "user": "user@imap.example.com",
         "password": "..."
       },
       "folders": ["INBOX", "Sent"]
@@ -195,7 +195,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
     "reportOnly": false,
     "receipt": {
       "forwardJGS": true,
-      "sparkReceiptsForwardTo": "receipts@company.com"
+      "sparkReceiptsForwardTo": "receipts@example.com"
     },
     "digest": {
       "slackChannelId": "C0456..."
@@ -211,7 +211,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).
 - `refs` — Named references to external service IDs accessed via `getRef('dotted.key')`.
 - `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions and drain-updates applies none.
-- `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@company.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`.
+- `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@example.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`.
 - `emailConfig.receipt` — Receipt forwarding settings.
 - `emailConfig.digest` — Slack channel for email digest delivery.
 

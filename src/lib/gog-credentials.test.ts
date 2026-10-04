@@ -31,16 +31,16 @@ function writeSa(email: string): string {
 
 describe('serviceAccountFileName', () => {
   it('base64-encodes the email and strips padding', () => {
-    // "a@b.co" -> YUBiLmNv (no padding); "a@b.c" -> YUBiLmM= (padded)
-    expect(serviceAccountFileName('a@b.co')).toBe('sa-YUBiLmNv.json');
-    expect(serviceAccountFileName('a@b.c')).toBe('sa-YUBiLmM.json');
+    // "ab@x.test" -> YWJAeC50ZXN0 (no padding); "a@x.test" -> YUB4LnRlc3Q= (padded)
+    expect(serviceAccountFileName('ab@x.test')).toBe('sa-YWJAeC50ZXN0.json');
+    expect(serviceAccountFileName('a@x.test')).toBe('sa-YUB4LnRlc3Q.json');
   });
 });
 
 describe('serviceAccountKeyPath', () => {
   it('lives under <config>/data, not the config root', () => {
-    expect(serviceAccountKeyPath('a@b.co', '/x/gogcli')).toBe(
-      path.join('/x/gogcli', 'data', 'sa-YUBiLmNv.json'),
+    expect(serviceAccountKeyPath('ab@x.test', '/x/gogcli')).toBe(
+      path.join('/x/gogcli', 'data', 'sa-YWJAeC50ZXN0.json'),
     );
   });
 });

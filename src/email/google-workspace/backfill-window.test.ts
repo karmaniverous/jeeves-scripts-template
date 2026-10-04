@@ -86,12 +86,12 @@ describe('resolveBackfillSettings', () => {
     expect(
       resolveBackfillSettings(SETTINGS, [
         '--accounts',
-        'a@x.com, b@x.com',
+        'a@example.com, b@example.com',
         '--window-days',
         '2',
       ]),
     ).toEqual({
-      accounts: ['a@x.com', 'b@x.com'],
+      accounts: ['a@example.com', 'b@example.com'],
       lookbackDays: 10,
       windowDays: 2,
     });
@@ -101,13 +101,13 @@ describe('resolveBackfillSettings', () => {
     expect(
       resolveBackfillSettings(undefined, [
         '--accounts',
-        'a@x.com',
+        'a@example.com',
         '--lookback-days',
         '90',
         '--window-days',
         '7',
       ]),
-    ).toEqual({ accounts: ['a@x.com'], lookbackDays: 90, windowDays: 7 });
+    ).toEqual({ accounts: ['a@example.com'], lookbackDays: 90, windowDays: 7 });
   });
 
   it('has no defaults: missing config and args is an error', () => {
@@ -115,7 +115,7 @@ describe('resolveBackfillSettings', () => {
       /missing accounts \(--accounts\), lookbackDays \(--lookback-days\), windowDays \(--window-days\).*no defaults/,
     );
     expect(() =>
-      resolveBackfillSettings(undefined, ['--accounts', 'a@x.com']),
+      resolveBackfillSettings(undefined, ['--accounts', 'a@example.com']),
     ).toThrow(/missing lookbackDays/);
     expect(() =>
       resolveBackfillSettings(undefined, ['--accounts', ' , ']),

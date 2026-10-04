@@ -9,10 +9,10 @@ import {
 } from './worker-posts.js';
 import type { SlackPostTarget } from './worker-slack-config.js';
 
-const OPS = 'channel:C0B2Z734KSP';
-const SAM = 'user:U09JC3DPCS1';
+const OPS = 'channel:C000EXAMPLE1';
+const SAM = 'user:U000EXAMPLE3';
 const block = (json: string, fence = '```') =>
-  `Agenda written to j:/veterancrowd/ops/ceo/agenda.md.\n\n${fence}slack-posts\n${json}\n${fence}\n`;
+  `Agenda written to content/ops/agenda.md.\n\n${fence}slack-posts\n${json}\n${fence}\n`;
 const allow = (
   target: string,
   ops: Partial<SlackPostTarget> = {},
@@ -22,7 +22,7 @@ describe('parseWorkerPosts', () => {
   it('parses posts and normalizes targets', () => {
     const text = block(
       JSON.stringify([
-        { channel: 'C0B2Z734KSP', text: 'Agenda for today', pin: true },
+        { channel: 'C000EXAMPLE1', text: 'Agenda for today', pin: true },
         { channel: SAM, thread_ts: '1790595302.365459', text: 'FYI' },
       ]),
     );
@@ -40,7 +40,7 @@ describe('parseWorkerPosts', () => {
 
   it('rejects a bare object: the contract requires a JSON array', () => {
     expect(() =>
-      parseWorkerPosts(block('{"channel":"C0B2Z734KSP","text":"x"}'), [
+      parseWorkerPosts(block('{"channel":"C000EXAMPLE1","text":"x"}'), [
         allow(OPS),
       ]),
     ).toThrow(/must be a JSON array/);
@@ -49,7 +49,7 @@ describe('parseWorkerPosts', () => {
   it('accepts edit_ts', () => {
     expect(
       parseWorkerPosts(
-        block('[{"channel":"C0B2Z734KSP","text":"v2","edit_ts":"1789.1"}]'),
+        block('[{"channel":"C000EXAMPLE1","text":"v2","edit_ts":"1789.1"}]'),
         [allow(OPS, { editTs: ['1789.1'] })],
       ),
     ).toEqual([{ channel: OPS, text: 'v2', edit_ts: '1789.1' }]);
@@ -68,21 +68,25 @@ describe('parseWorkerPosts', () => {
     ],
     ['two blocks', block('[]') + block('[]'), /more than one/],
     ['bad JSON', block('[{channel: C1}]'), /not valid JSON/],
-    ['empty text', block('[{"channel":"C0B2Z734KSP","text":"  "}]'), /Invalid/],
+    [
+      'empty text',
+      block('[{"channel":"C000EXAMPLE1","text":"  "}]'),
+      /Invalid/,
+    ],
     [
       'unknown key',
-      block('[{"channel":"C0B2Z734KSP","text":"x","as_user":true}]'),
+      block('[{"channel":"C000EXAMPLE1","text":"x","as_user":true}]'),
       /Invalid/,
     ],
     [
       'bad thread_ts',
-      block('[{"channel":"C0B2Z734KSP","text":"x","thread_ts":"yesterday"}]'),
+      block('[{"channel":"C000EXAMPLE1","text":"x","thread_ts":"yesterday"}]'),
       /Invalid/,
     ],
     [
       'edit with pin',
       block(
-        '[{"channel":"C0B2Z734KSP","text":"x","edit_ts":"1.2","pin":true}]',
+        '[{"channel":"C000EXAMPLE1","text":"x","edit_ts":"1.2","pin":true}]',
       ),
       /edit_ts cannot be combined/,
     ],
@@ -102,13 +106,13 @@ describe('parseWorkerPosts', () => {
 
   describe('operation allowlist', () => {
     const edit = (ts: string) =>
-      block(`[{"channel":"C0B2Z734KSP","text":"v2","edit_ts":"${ts}"}]`);
-    const pin = block('[{"channel":"C0B2Z734KSP","text":"x","pin":true}]');
+      block(`[{"channel":"C000EXAMPLE1","text":"v2","edit_ts":"${ts}"}]`);
+    const pin = block('[{"channel":"C000EXAMPLE1","text":"x","pin":true}]');
 
     it('rejects an edit of a message that is not explicitly allowed', () => {
       expect(() =>
         parseWorkerPosts(edit('1790.9'), [allow(OPS, { editTs: ['1789.1'] })]),
-      ).toThrow(/edit message 1790.9 in channel:C0B2Z734KSP.*not an allowed/);
+      ).toThrow(/edit message 1790.9 in channel:C000EXAMPLE1.*not an allowed/);
     });
 
     it('rejects any edit on a target without allowed edit ids', () => {
@@ -128,7 +132,7 @@ describe('parseWorkerPosts', () => {
 
     it('rejects a pin unless the target allows pins', () => {
       expect(() => parseWorkerPosts(pin, [allow(OPS)])).toThrow(
-        /pin a message in channel:C0B2Z734KSP/,
+        /pin a message in channel:C000EXAMPLE1/,
       );
       expect(parseWorkerPosts(pin, [allow(OPS, { pin: true })])).toHaveLength(
         1,
@@ -174,7 +178,7 @@ describe('formatSlackContext', () => {
   it('formats reads with timestamps, ts and thread ts', () => {
     const text = formatSlackContext([
       {
-        label: '#ops-ceo [channel:C0B2Z734KSP]',
+        label: '#ops-ceo [channel:C000EXAMPLE1]',
         messages: [
           { ts: '1790590000.000100', user: 'U1', text: 'line 1\nline 2' },
           {

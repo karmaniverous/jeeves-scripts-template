@@ -54,7 +54,7 @@ describe('autoTransform', () => {
   });
 
   it('converts a non-decimal string to sha256-16', () => {
-    const input = '<test@msg.com>';
+    const input = '<test@msg.example>';
     const expected = createHash('sha256')
       .update(input)
       .digest('hex')
@@ -71,7 +71,7 @@ describe('autoTransform', () => {
   });
 
   it('returns hex only (no uppercase chars) for sha256 path', () => {
-    const result = autoTransform('<something@test.org>');
+    const result = autoTransform('<something@mail.test>');
     expect(/^[0-9a-f]{16}$/.test(result)).toBe(true);
   });
 });

@@ -12,10 +12,12 @@
  * EMAIL_EVENTS_DIR.
  *
  * Depends on EMAIL_EVENTS_DIR for run logging. Rate limit is hardcoded
- * via MAX_CALLS_PER_MINUTE constant. Applies nothing (and dequeues
- * nothing) when emailConfig.reportOnly is true. Fails when Gmail
- * accounts are configured but gog has no OAuth client and no
- * service-account mailboxes.
+ * via MAX_CALLS_PER_MINUTE constant. Skips when no gog accounts are
+ * configured (getGmailAccounts(): polled Gmail accounts plus
+ * emailConfig.backfill.accounts). Fails when there are some but gog has
+ * no OAuth client and no service-account mailboxes, whether or not
+ * reportOnly is set. Applies nothing (and dequeues nothing) when
+ * emailConfig.reportOnly is true. See label-actions.ts planDrain().
  */
 
 import path from 'node:path';

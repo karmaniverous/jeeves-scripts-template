@@ -108,6 +108,27 @@ describe('pipeline-config', () => {
     it('returns polled accounts without an imap block', () => {
       expect(getGmailAccounts()).toEqual(['alice@example.com']);
     });
+
+    it('adds backfill accounts, deduplicated', () => {
+      vi.spyOn(fs, 'readFileSync').mockReturnValue(
+        JSON.stringify({
+          ...VALID_CONFIG,
+          emailConfig: {
+            ...VALID_CONFIG.emailConfig,
+            backfill: {
+              accounts: ['alice@example.com', 'archive@example.com'],
+              lookbackDays: 90,
+              windowDays: 7,
+            },
+          },
+        }),
+      );
+      resetPipelineConfig();
+      expect(getGmailAccounts()).toEqual([
+        'alice@example.com',
+        'archive@example.com',
+      ]);
+    });
   });
 
   describe('getBucketForDomain', () => {

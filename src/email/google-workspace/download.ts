@@ -11,7 +11,10 @@
  * the account's threads directory. Logs run stats to EMAIL_EVENTS_DIR.
  *
  * Depends on EMAIL_EVENTS_DIR for run logging and silo-router for
- * per-account thread storage paths.
+ * per-account thread storage paths. Skips when no gog accounts are
+ * configured (getGmailAccounts(): polled Gmail accounts plus
+ * emailConfig.backfill.accounts); fails when there are some but gog has
+ * no OAuth client and no service-account mailboxes.
  */
 
 import fs from 'node:fs';

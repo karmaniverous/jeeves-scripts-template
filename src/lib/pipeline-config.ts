@@ -169,13 +169,20 @@ export function getEmailAccounts(): string[] {
 }
 
 /**
- * Email addresses of polled accounts served by gog (Gmail / Google
- * Workspace), i.e. emailPolling accounts without an `imap` block.
+ * Email addresses served by gog (Gmail / Google Workspace), deduplicated:
+ * emailPolling accounts without an `imap` block, plus
+ * `emailConfig.backfill.accounts`. Backfill feeds the same `email-pending`
+ * and `email-updates` queues, so the gog consumers (download,
+ * drain-updates) must run for backfill-only accounts too.
  */
 export function getGmailAccounts(): string[] {
-  return loadPipelineConfig()
-    .accounts.filter((a) => a.emailPolling && !a.imap)
+  const config = loadPipelineConfig();
+  const polled = config.accounts
+    .filter((a) => a.emailPolling && !a.imap)
     .map((a) => a.email);
+  return [
+    ...new Set([...polled, ...(config.emailConfig.backfill?.accounts ?? [])]),
+  ];
 }
 
 /** Match a domain to a bucket name, or null if no match. */

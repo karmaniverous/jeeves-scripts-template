@@ -1,6 +1,6 @@
 # email/
 
-Unified email pipeline. Dispatches by account type: accounts with an `imap` block are polled via direct IMAP connection; accounts without are polled via the `gog` CLI (Gmail OAuth).
+Unified email pipeline. Dispatches by account type: accounts with an `imap` block are polled via direct IMAP connection; accounts without are polled via the `gog` CLI (Gmail, via an OAuth client or service-account mailboxes).
 
 ## Directory Structure
 
@@ -10,7 +10,7 @@ email/
   email-cache.ts           ← shared: per-thread JSON cache
   email-state.ts           ← shared: per-thread/account state in runner SQLite
   imap/                    ← platform-agnostic IMAP transport
-  google-workspace/        ← gog CLI transport (Gmail OAuth)
+  google-workspace/        ← gog CLI transport (Gmail)
 ```
 
 ## Data Flow
@@ -46,7 +46,8 @@ flowchart TD
 | --- | --- |
 | `poll.ts` | Unified entry point — IMAP accounts polled directly, gog accounts searched/classified/enqueued |
 | `email-cache.ts` | Per-thread JSON cache — load, save, create/update, detect label changes |
-| `email-state.ts` | Per-thread and per-account state in runner SQLite store |
+| `email-state.ts` | Per-thread and per-account state in runner SQLite store; `EmailStoreClient` is the narrow runner-client type the pipeline uses |
+| `trim-jsonl.ts` | `trimJsonlFiles()`: drops event-log lines older than 7 days after each poll (`_runs-*.jsonl` kept) |
 
 ## Prerequisites
 
@@ -54,9 +55,9 @@ flowchart TD
   - an OAuth client at `GOG_CLIENT_PATH` (`<GOG_CONFIG_DIR>/credentials.json`) plus per-account tokens; or
   - service-account mailboxes (domain-wide delegation) registered by gog at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json` (padding stripped; checked first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`). jeeves-tools deploy writes the key to `<GOG_CONFIG_DIR>/service-account.json`.
 
-  Detection lives in one place, `src/lib/gog-credentials.ts`. If gog accounts are configured but neither credential type exists, `poll`, `download` and `drain-updates` **fail** (non-zero exit, clear message) instead of skipping. With no gog accounts configured they skip quietly.
+  Detection lives in one place, `src/lib/gog-credentials.ts`. If gog accounts are configured but neither credential type exists, `poll`, `download`, `drain-updates` and `backfill-historical` **fail** (non-zero exit, clear message) instead of skipping; `drain-updates` fails even when `reportOnly` is set. With no gog accounts configured they skip quietly. For `download` and `drain-updates`, "gog accounts" means `getGmailAccounts()`: polled accounts without an `imap` block plus `emailConfig.backfill.accounts`, so items queued by a backfill-only account are still consumed.
 
-- **`emailConfig.reportOnly: true`**: mail is still ingested and archived, but nothing is written back to Gmail: `poll` and `backfill-historical` enqueue no label actions, and `drain-updates` dequeues and applies nothing (any items already queued are left pending).
+- **`emailConfig.reportOnly: true`**: mail is still ingested and archived, but nothing is written back to Gmail. Every `email-updates` write goes through `google-workspace/label-actions.ts`, so `poll` and `backfill-historical` enqueue neither classification labels nor curation-signal actions (`watch` added/removed by `email-fetch.ts`), and `drain-updates` dequeues and applies nothing (any items already queued are left pending).
 - **IMAP accounts**: `imap` connection block in pipeline config with host/port/user/password
 - All accounts: listed in `pipeline-config.json` with `emailPolling: true` and a `type` field (`gmail` or `imap`)
 
@@ -99,7 +100,7 @@ Incremental polling via IMAP UIDs stored in runner state namespace `imap-poll`. 
 
 ## google-workspace/
 
-Gmail polling via the `gog` CLI (Google OAuth). Handles search, classification, body download, and label management.
+Gmail polling via the `gog` CLI (OAuth client or service-account mailboxes). Handles search, classification, body download, and label management.
 
 ### Scripts
 
@@ -107,12 +108,16 @@ Gmail polling via the `gog` CLI (Google OAuth). Handles search, classification, 
 | --- | --- |
 | `download.ts` | Dequeues threads from `email-pending` and downloads full message bodies, headers, and attachments |
 | `drain-updates.ts` | Dequeues label-change actions from `email-updates` and applies them to Gmail via `gog gmail thread modify` |
-| `email-fetch.ts` | Fetch full thread metadata from Gmail, update cache/provenance, enqueue for download |
+| `email-fetch.ts` | Fetch full thread metadata from Gmail, update cache/provenance, enqueue for download; curation signals are enqueued via `label-actions.ts` (none in `reportOnly`) |
+| `gmail-search.ts` | Zod-validated parsing of `gog gmail search --json` pages (`parseSearchPage`) and lazy paging over `nextPageToken` (`searchThreadPages`, throws on a repeated token). Used by `poll.ts` and `backfill-window.ts` |
+| `message-record.ts` | Builds the per-message JSON record and `thread.json` summary that `download.ts` writes |
 | `email-triage.ts` | Pure-function classification helpers (receipt, junk, bucket, importance) |
 | `backfill-bodies.ts` | One-shot: finds cached threads missing downloaded message bodies and enqueues them |
 | `backfill-classification.ts` | One-shot: classifies threads missing receipt/junk/bucket fields and enqueues label actions |
-| `backfill-historical.ts` | Paced job: each run searches one window per account (all result pages), walking back from the newest unprocessed point to the lookback limit, then no-ops. Settings from `emailConfig.backfill` (`accounts`, `lookbackDays`, `windowDays`) or `--accounts` / `--lookback-days` / `--window-days`; no defaults. Dry-run unless `--live`. Cursor: runner state `email-backfill` / `cursor-<email>`. Logic in `backfill-window.ts` |
-| `label-actions.ts` | `reportOnly` gating: label-action enqueueing (poll, backfill) and the drain-updates go/no-go |
+| `backfill-historical.ts` | Paced job: each run searches one window per account (all result pages), walking back from the newest unprocessed point to the lookback limit, then no-ops. Settings from `emailConfig.backfill` (`accounts`, `lookbackDays`, `windowDays`) or `--accounts` / `--lookback-days` / `--window-days`; no defaults. Dry-run unless `--live`. Cursor: runner state `email-backfill` / `cursor-<email>`. Settings in `backfill-settings.ts`, window processing in `backfill-window.ts` |
+| `backfill-settings.ts` | `resolveBackfillSettings()`: CLI args over `emailConfig.backfill`, per field; throws when any field is missing |
+| `backfill-window.ts` | Cursor and window arithmetic and `backfillAccount()`: processes the window one search page at a time and advances the cursor (live only) after the last page |
+| `label-actions.ts` | Every `email-updates` write, gated on `reportOnly` (`enqueueEmailUpdates`, `enqueueLabelActions`, `curationSignalActions`); the drain-updates go/no-go (`planDrain`); action-to-label mapping for drain-updates (`labelChangesFor`, `threadModifyArgs`) |
 | `backfill-labels.ts` | One-shot: enqueues label actions for threads with classification but no applied labels |
 | `inventory.ts` | Prints a summary table of thread directories, message files, and state counts per account |
 

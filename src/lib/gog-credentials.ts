@@ -21,7 +21,10 @@
  * wrong.
  *
  * Called by email/poll.ts, email/google-workspace/download.ts,
- * email/google-workspace/drain-updates.ts and calendar/poll.ts.
+ * email/google-workspace/backfill-historical.ts,
+ * email/google-workspace/label-actions.ts (drain-updates) and
+ * calendar/poll.ts (per-account checks in calendar/lib/
+ * calendar-accounts.ts).
  *
  * Config dependencies: GOG_CLIENT_PATH, GOG_CONFIG_DIR from constants.ts.
  */

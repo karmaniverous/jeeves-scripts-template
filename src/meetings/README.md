@@ -6,7 +6,7 @@ Meeting extraction from three independent sources — Google Meet (via email), F
 
 | Script | Description |
 | --- | --- |
-| `extract.ts` | Scans the email cache for meeting-related threads, detects source (Google Meet, Fathom), creates meeting packages with metadata and artifacts |
+| `extract.ts` | Scans the email cache for meeting-related threads, detects source (Google Meet, Fathom), creates meeting packages with metadata and artifacts. For each new meeting it enqueues the Gmail `meeting` label (plus an archive if the message is in the inbox) on `email-updates` through the email pipeline's `label-actions.ts`, so nothing is enqueued when `emailConfig.reportOnly` is true |
 | `fetch-notes.ts` | Walks meeting directories, fetches Gemini doc transcripts and Fathom transcripts for meetings that need them |
 | `ingest-notion.ts` | Polls a Notion inbox database, fetches meeting content via browser extraction, stages artifacts locally, archives the inbox page |
 | `migrate-alignment.ts` | One-shot: brings existing meeting packages into conformance with the canonical meeting-package contract |
@@ -61,6 +61,7 @@ Each meeting lives in a directory under `{silo}/meetings/{meetingId}/`:
 | --- | --- |
 | `lib/meeting-schema.ts` | Canonical meeting.json Zod schema, `writeMeetingMeta()`, sort timestamp computation |
 | `lib/detect.ts` | Meeting detection — subject matching, title normalization, participant extraction, Fathom URL detection, meeting ID generation |
+| `lib/email-actions.ts` | Gmail actions for a new meeting (`meeting` label, archive if in inbox), enqueued via `enqueueEmailUpdates` (the `reportOnly` gate) |
 | `lib/package.ts` | Creates/updates meeting package directories and artifacts, manages runner-state index |
 | `lib/meetings-dirs.ts` | Discovers all meetings directories across silos via `getEntityDirs()` |
 | `lib/doc-fetch.ts` | Fetches Google Doc transcripts via `gog` CLI for meetings with `gemini_link.txt` |

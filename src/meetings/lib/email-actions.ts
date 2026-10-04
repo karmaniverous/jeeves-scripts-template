@@ -1,0 +1,70 @@
+/**
+ * @module meetings/lib/email-actions
+ *
+ * Gmail actions for a thread that meetings/extract.ts has just turned
+ * into a new meeting package: add the `meeting` label and, if the
+ * message is in the inbox, archive it.
+ *
+ * The actions are enqueued through `enqueueEmailUpdates` (label-actions),
+ * the single `emailConfig.reportOnly` gate for `email-updates` writes.
+ */
+
+import type { RunnerClient } from '@karmaniverous/jeeves-runner';
+
+import {
+  type EmailUpdateAction,
+  enqueueEmailUpdates,
+} from '../../email/google-workspace/label-actions.js';
+
+/** Source recorded on every action this module builds. */
+export const MEETING_ACTION_SOURCE = 'extract-email-meetings';
+
+/** The message a new meeting package was built from. */
+export interface MeetingMessageRef {
+  account: string;
+  threadId: string;
+  messageId: string;
+  /** Gmail labels on the message (from the thread cache). */
+  labels: string[];
+}
+
+/** Actions for a new meeting: `meeting` label, plus archive if in INBOX. */
+export function meetingEmailActions(
+  ref: MeetingMessageRef,
+): EmailUpdateAction[] {
+  const base = {
+    account: ref.account,
+    threadId: ref.threadId,
+    messageId: ref.messageId,
+    source: MEETING_ACTION_SOURCE,
+  };
+  const actions: EmailUpdateAction[] = [
+    {
+      ...base,
+      action: 'addLabel',
+      label: 'meeting',
+      reason: 'Meeting package created from this message',
+    },
+  ];
+  if (ref.labels.includes('INBOX'))
+    actions.push({
+      ...base,
+      action: 'archive',
+      reason: 'Meeting email archived after packaging',
+    });
+  return actions;
+}
+
+/**
+ * Enqueue {@link meetingEmailActions} for `ref`, unless `reportOnly`.
+ *
+ * @returns The number of actions enqueued (0 in reportOnly).
+ */
+export function enqueueMeetingEmailActions(
+  client: Pick<RunnerClient, 'enqueue'>,
+  ref: MeetingMessageRef,
+  reportOnly: boolean,
+): number {
+  const actions = meetingEmailActions(ref);
+  return enqueueEmailUpdates(client, actions, reportOnly) ? actions.length : 0;
+}

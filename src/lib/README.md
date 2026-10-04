@@ -30,6 +30,8 @@ Thin wrappers around date-fns. No config dependencies.
 - `dayOfWeek(dateStr)` — full weekday name (e.g., "Monday"). Important because LLMs cannot do day-of-week arithmetic reliably.
 - `formatDate(dateStr, fmt)` — format a date using date-fns pattern
 - `relativeDays(dateStr, referenceStr?)` — human-friendly relative description ("3 days ago", "today")
+- `requireTimeZone(value, source)` — validates a time zone read from instance config; throws (naming `source`) when it is empty or not a valid IANA zone. No default zone
+- `withDateContext(task, now, timeZone)` — prepends `> **Today is <weekday>, <YYYY-MM-DD> (<zone>).** …` to a worker task (used by `dispatchers/daily-digest.ts`)
 - Re-exports `format` and `parseISO` from date-fns
 
 From a shell, run it with `tsx` from the repo root (the repo is TypeScript source with no compiled `.js`, so plain `node -e` importing `./src/lib/dates.js` fails with `ERR_MODULE_NOT_FOUND`):
@@ -230,8 +232,8 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 - `accounts[].calendar` — Either `{ "serviceAccount": "auto" }` (Workspace mailbox via the service-account registration gog keeps for it) or `{ "tokenFile": "<path relative to CREDENTIALS_DIR>" }` (OAuth refresh token; needs the gog OAuth client). See [calendar/](../calendar/README.md#account-configuration).
 - `buckets.domains` — Maps email domains to classification buckets. `pattern` is matched case-insensitively.
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).
-- `refs` — Named references to external service IDs accessed via `getRef('dotted.key')`.
-- `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal) and drain-updates applies none.
+- `refs` — Named references to external service IDs (and other per-instance values, such as the daily digest's IANA time zone `digest.timezone`) accessed via `getRef('dotted.key')`.
+- `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal), meetings-extract enqueues no `meeting` label or archive, and drain-updates applies none.
 - `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@example.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`. Backfill accounts are included in `getGmailAccounts()`, so `email-download` and `email-drain-updates` consume what backfill queues even for accounts that are not polled.
 - `emailConfig.receipt` — Receipt forwarding settings: `forwardEnabled` (boolean, whether detected receipts are forwarded) and `sparkReceiptsForwardTo` (the address they go to). No script in this template reads these yet; they are validated so instance scripts can rely on them.
 - `buckets` — bucket names (from `buckets.priority` and `buckets.domains[].bucket`, see `getBucketNames()`) are also the Gmail labels the classification and backfill scripts apply. No bucket name is hard-coded in code.

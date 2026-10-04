@@ -6,7 +6,7 @@ Framework for autonomous LLM task dispatchers that read Markdown task files and 
 
 | Script | Description |
 | --- | --- |
-| `daily-digest.ts` | The reference implementation for recurring briefings. Reads `{CONTENT_DIR}/digest/TASK.md` and dispatches a gateway session to generate and publish a daily digest. Injects authoritative date context (UTC). The script posts to the optional `slack.digestChannel` / `slack.operatorDm` refs (no Slack reads). Prerequisite: TASK.md must exist (otherwise `[skip]`). |
+| `daily-digest.ts` | The reference implementation for recurring briefings. Reads `{CONTENT_DIR}/digest/TASK.md` and dispatches a gateway session to generate and publish a daily digest. Injects authoritative date context in the time zone set by the `digest.timezone` ref (IANA name, e.g. `America/Chicago`, or `UTC`). The script posts to the optional `slack.digestChannel` / `slack.operatorDm` refs (no Slack reads). Prerequisites: TASK.md must exist (otherwise `[skip]`); once it does, `digest.timezone` is required (missing or invalid fails the run; there is no default). |
 | `social-posts.ts` | Dynamically builds a task from pipeline-config refs and content paths, then dispatches a session to generate social media posts to a Notion database. The script posts the worker's summaries to Slack. Prerequisite: `notion.socialPostsDatabaseId`, `slack.socialChannel`, `slack.operatorDm` refs (Slack IDs) in pipeline-config. |
 
 ## Activation
@@ -123,19 +123,18 @@ To read manual overrides or feedback from the same channel, add it to `reads`.
 
 ### Date Context Injection
 
-When a dispatcher needs an authoritative date reference (e.g. daily digests), inject it as a quoted block at the top of the task, so the worker never guesses the date. Use the stakeholder's timezone (`daily-digest.ts` uses UTC):
+When a dispatcher needs an authoritative date reference (e.g. daily digests), inject it as a quoted block at the top of the task, so the worker never guesses the date. Use the stakeholder's time zone from instance config, never a hard-coded one: `daily-digest.ts` reads the `digest.timezone` ref (`lib/digest-timezone.ts`). `requireTimeZone` (`../lib/dates.ts`) throws when the value is missing or not a valid zone, and `withDateContext` prepends the date line:
 
 ```typescript
-const tz = 'UTC';
-const now = new Date();
-const dayName = now.toLocaleDateString('en-US', {
-  weekday: 'long',
-  timeZone: tz,
-});
-const dateStr = now.toLocaleDateString('en-CA', { timeZone: tz });
-task =
-  `> **Today is ${dayName}, ${dateStr} (${tz}).** Use this as the authoritative date reference.\n\n` +
-  task;
+import { requireTimeZone, withDateContext } from '../lib/dates.js';
+import { tryGetRef } from '../lib/pipeline-config.js';
+
+const tz = requireTimeZone(
+  tryGetRef('myDomain.timezone'),
+  'refs["myDomain.timezone"] in pipeline-config.json',
+);
+task = withDateContext(task, new Date(), tz);
+// > **Today is Monday, 2026-05-11 (America/Chicago).** Use this as the authoritative date reference for all dates in this report.
 ```
 
 ## TASK File Anatomy
@@ -161,5 +160,7 @@ Example location: `{CONTENT_DIR}/digest/TASK.md`
 | --- | --- |
 | `../lib/constants.ts` | Provides `CONTENT_DIR`, `SPAWN_WORKER_PATH` |
 | `../lib/pipeline-config.ts` | Provides `getRef()` / `tryGetRef()` for external service IDs |
+| `../lib/dates.ts` | `requireTimeZone()` / `withDateContext()` for date context injection |
+| `lib/digest-timezone.ts` | Reads and validates the daily digest's `digest.timezone` ref |
 | `../lib/spawn-worker.ts` | Gateway session spawner invoked by `dispatchSession()` |
 | `../lib/worker-slack/` | Job-side Slack I/O for workers: reads, `slack-posts` contract, posting |

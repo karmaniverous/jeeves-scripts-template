@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { dayOfWeek, formatDate, relativeDays } from './dates.js';
+import {
+  dayOfWeek,
+  formatDate,
+  relativeDays,
+  requireTimeZone,
+  withDateContext,
+} from './dates.js';
 
 describe('dayOfWeek', () => {
   it('returns Monday for 2026-05-11', () => {
@@ -53,5 +59,41 @@ describe('relativeDays', () => {
   it('returns relative description for past dates', () => {
     const result = relativeDays('2026-05-01', '2026-05-11');
     expect(result).toMatch(/\d+ days ago/);
+  });
+});
+
+describe('requireTimeZone', () => {
+  it('returns a valid zone unchanged', () => {
+    expect(requireTimeZone('America/Chicago', 'cfg')).toBe('America/Chicago');
+    expect(requireTimeZone('UTC', 'cfg')).toBe('UTC');
+  });
+
+  it('throws on a missing zone, naming the source', () => {
+    expect(() => requireTimeZone('', 'the ref')).toThrow(
+      'No time zone configured: set the ref',
+    );
+  });
+
+  it('throws on an unknown zone', () => {
+    expect(() => requireTimeZone('Nope/Zone', 'the ref')).toThrow(
+      'Invalid time zone "Nope/Zone" in the ref',
+    );
+  });
+});
+
+describe('withDateContext', () => {
+  // 03:00 UTC on Tuesday 12 May is still Monday 11 May in Chicago.
+  const now = new Date('2026-05-12T03:00:00Z');
+
+  it('dates the task in the given zone', () => {
+    expect(withDateContext('TASK', now, 'America/Chicago')).toBe(
+      '> **Today is Monday, 2026-05-11 (America/Chicago).** Use this as the authoritative date reference for all dates in this report.\n\nTASK',
+    );
+  });
+
+  it('gives a different date for a different zone', () => {
+    expect(withDateContext('TASK', now, 'UTC')).toMatch(
+      /^> \*\*Today is Tuesday, 2026-05-12 \(UTC\)\.\*\*/,
+    );
   });
 });

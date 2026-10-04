@@ -18,7 +18,7 @@ flowchart LR
 ```
 
 - Calls the Google Calendar REST API directly (`lib/calendar-api.ts`) with an access token from core's `createGoogleAuth`, read-only scope (`calendar.readonly`). It does not shell out to the `gog` binary; it only reads the credential files gog manages.
-- Lists every calendar the account can see (calendars where it is only a `freeBusyReader` are skipped) and fetches all events in the window, paginated.
+- Lists every calendar the account can see, following every page of the calendar list (calendars where it is only a `freeBusyReader` are skipped), and fetches all events in the window, also following every page. Both lists share one pager (`listAllPages()` in `lib/calendar-api.ts`).
 - Window per account: from `lastSync - 24 h` (first run: 90 days back) to 90 days forward.
 - Change detection: a SHA-256 (first 16 hex chars, stored as `_hash`) of the significant fields (summary, description, start, end, location, status, attendee emails and responses, recurrence, updated). An event whose hash is unchanged is not rewritten.
 - Output: `{silo}/calendar/{accountEmail}/{calendar name}/{eventId}.json`, where `{silo}` is `getBasePathForEmailDomain(<account's domain>)` and `{calendar name}` is the calendar's summary (or id), sanitized. Each file is the API event plus `_calendarId`, `_calendarSummary`, `_ingestedAt` and `_hash`.
@@ -50,7 +50,7 @@ The manifest entry carries a non-null `prerequisite`.
 
 | File | Purpose |
 | --- | --- |
-| `lib/calendar-api.ts` | Google Calendar REST API helpers — `listCalendars()` and `getAllEvents()` with pagination |
+| `lib/calendar-api.ts` | Google Calendar REST API helpers — `listCalendars()` and `getAllEvents()`, each following every page (`nextPageToken`) |
 | `lib/calendar-accounts.ts` | `resolveCalendarAccounts()`: maps each configured account to its auth config and reports accounts missing their own credential |
 | `../lib/gog-credentials.ts` | `detectGogCredentials()` (OAuth client present?) and `findServiceAccountFile()` |
 | `../lib/pipeline-config.ts` | Provides `getCalendarAccounts()` |

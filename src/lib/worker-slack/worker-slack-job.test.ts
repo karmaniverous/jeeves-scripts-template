@@ -5,10 +5,10 @@ import type { WorkerSlackConfig } from './worker-slack-config.js';
 import { runWorkerSlackJob } from './worker-slack-job.js';
 
 const CONFIG: WorkerSlackConfig = {
-  reads: [{ target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 10 }],
+  reads: [{ target: 'C000EXAMPLE1', label: '#ops-ceo', limit: 10 }],
   posts: [
     {
-      target: 'C0B2Z734KSP',
+      target: 'C000EXAMPLE1',
       purpose: 'the agenda (pin it)',
       pin: true,
       editTs: ['1789000000.000100'],
@@ -46,9 +46,9 @@ describe('runWorkerSlackJob', () => {
     const dispatch = vi.fn().mockResolvedValue({
       exitCode: 0,
       finalText: reply([
-        { channel: 'C0B2Z734KSP', text: 'Agenda', pin: true },
+        { channel: 'C000EXAMPLE1', text: 'Agenda', pin: true },
         {
-          channel: 'C0B2Z734KSP',
+          channel: 'C000EXAMPLE1',
           thread_ts: '1790590000.000100',
           text: 'Added',
         },
@@ -62,7 +62,7 @@ describe('runWorkerSlackJob', () => {
       print,
     });
 
-    expect(slack.read).toHaveBeenCalledWith('channel:C0B2Z734KSP', {
+    expect(slack.read).toHaveBeenCalledWith('channel:C000EXAMPLE1', {
       limit: 10,
       threadTs: undefined,
     });
@@ -70,23 +70,23 @@ describe('runWorkerSlackJob', () => {
     expect(task.startsWith('Build the agenda.')).toBe(true);
     expect(task).toContain('U1: Add hiring to the agenda');
     expect(task).toContain(
-      '- channel:C0B2Z734KSP: the agenda (pin it) (may edit only message(s) 1789000000.000100; may pin)',
+      '- channel:C000EXAMPLE1: the agenda (pin it) (may edit only message(s) 1789000000.000100; may pin)',
     );
     expect(task).toMatch(/do not call the message tool/);
 
     expect(slack.send).toHaveBeenNthCalledWith(
       1,
-      'channel:C0B2Z734KSP',
+      'channel:C000EXAMPLE1',
       'Agenda',
       undefined,
     );
     expect(slack.pin).toHaveBeenCalledWith(
-      'channel:C0B2Z734KSP',
+      'channel:C000EXAMPLE1',
       '1790600000.000200',
     );
     expect(slack.send).toHaveBeenNthCalledWith(
       2,
-      'channel:C0B2Z734KSP',
+      'channel:C000EXAMPLE1',
       'Added',
       '1790590000.000100',
     );
@@ -103,7 +103,7 @@ describe('runWorkerSlackJob', () => {
         exitCode: 0,
         finalText: reply([
           {
-            channel: 'C0B2Z734KSP',
+            channel: 'C000EXAMPLE1',
             edit_ts: '1789000000.000100',
             text: 'Standing orders v2',
           },
@@ -111,7 +111,7 @@ describe('runWorkerSlackJob', () => {
       }),
     });
     expect(slack.edit).toHaveBeenCalledWith(
-      'channel:C0B2Z734KSP',
+      'channel:C000EXAMPLE1',
       '1789000000.000100',
       'Standing orders v2',
     );
@@ -144,7 +144,7 @@ describe('runWorkerSlackJob', () => {
       dispatch: vi.fn().mockResolvedValue({
         exitCode: 0,
         finalText: reply([
-          { channel: 'C0B2Z734KSP', text: 'Agenda', pin: true },
+          { channel: 'C000EXAMPLE1', text: 'Agenda', pin: true },
         ]),
       }),
       print,
@@ -154,7 +154,7 @@ describe('runWorkerSlackJob', () => {
     expect(slack.send).not.toHaveBeenCalled();
     expect(slack.pin).not.toHaveBeenCalled();
     expect(print).toHaveBeenCalledWith(
-      '[slack dry-run] → channel:C0B2Z734KSP (pin)\nAgenda',
+      '[slack dry-run] → channel:C000EXAMPLE1 (pin)\nAgenda',
     );
     expect(result).toMatchObject({ posted: 0, posts: [{ text: 'Agenda' }] });
   });
@@ -168,7 +168,7 @@ describe('runWorkerSlackJob', () => {
         dispatch: vi.fn().mockResolvedValue({
           exitCode: 0,
           finalText: reply([
-            { channel: 'C0B2Z734KSP', text: 'ok' },
+            { channel: 'C000EXAMPLE1', text: 'ok' },
             { channel: 'U0SOMEONE1', text: 'sneaky DM' },
           ]),
         }),
@@ -186,8 +186,12 @@ describe('runWorkerSlackJob', () => {
         dispatch: vi.fn().mockResolvedValue({
           exitCode: 0,
           finalText: reply([
-            { channel: 'C0B2Z734KSP', text: 'ok' },
-            { channel: 'C0B2Z734KSP', edit_ts: '1790000000.000999', text: 'x' },
+            { channel: 'C000EXAMPLE1', text: 'ok' },
+            {
+              channel: 'C000EXAMPLE1',
+              edit_ts: '1790000000.000999',
+              text: 'x',
+            },
           ]),
         }),
       }),
@@ -228,7 +232,7 @@ describe('runWorkerSlackJob', () => {
         print: vi.fn(),
         dispatch: vi.fn().mockResolvedValue({
           exitCode: 0,
-          finalText: reply([{ channel: 'C0B2Z734KSP', text: 'x', pin: true }]),
+          finalText: reply([{ channel: 'C000EXAMPLE1', text: 'x', pin: true }]),
         }),
       }),
     ).rejects.toThrow(/no message ts to pin/);

@@ -49,7 +49,7 @@ const MESSAGES = [
 const LONG_REPLY = [
   `Summary: ${'agenda line. '.repeat(400)}`,
   '```slack-posts',
-  JSON.stringify([{ channel: 'channel:C0B2Z734KSP', text: 'x'.repeat(3000) }]),
+  JSON.stringify([{ channel: 'channel:C000EXAMPLE1', text: 'x'.repeat(3000) }]),
   '```',
 ].join('\n');
 
@@ -123,9 +123,9 @@ describe('readWorkerFinalText', () => {
     const text = await readWorkerFinalText(STDOUT, rpc);
     expect(text).toBe(LONG_REPLY);
     expect(text?.endsWith('```')).toBe(true);
-    const allowed = [{ target: 'C0B2Z734KSP', purpose: 'agenda' }];
+    const allowed = [{ target: 'C000EXAMPLE1', purpose: 'agenda' }];
     expect(parseWorkerPosts(text, allowed)).toEqual([
-      { channel: 'channel:C0B2Z734KSP', text: 'x'.repeat(3000) },
+      { channel: 'channel:C000EXAMPLE1', text: 'x'.repeat(3000) },
     ]);
     // What the 4000-char sessions_history cap used to hand the parser:
     expect(() => parseWorkerPosts(LONG_REPLY.slice(0, 4000), allowed)).toThrow(

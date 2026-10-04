@@ -8,7 +8,15 @@
  * getCalendarAccounts(), fetches events via the Calendar API, and writes
  * individual JSON files to the silo-routed data archive with SHA-256
  * hash-based change detection. Requires CREDENTIALS_DIR, GOG_CLIENT_PATH,
- * and GOG_CONFIG_DIR from constants for Google auth setup.
+ * and GOG_CONFIG_DIR from constants for Google auth setup. Service-account
+ * accounts (`calendar.serviceAccount: "auto"`) use the key gog registered
+ * at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json` (or, for older gog
+ * builds without `data/`, in the `<GOG_CONFIG_DIR>` root); token-file
+ * accounts need the gog OAuth client.
+ *
+ * No calendar accounts: skips (exit 0). Each account's own credential is
+ * checked first (lib/calendar-accounts.ts); accounts missing it are
+ * reported, the rest are polled, and then the run fails (exit 1).
  */
 
 import crypto from 'node:crypto';
@@ -25,8 +33,13 @@ import {
   GOG_CLIENT_PATH,
   GOG_CONFIG_DIR,
 } from '../lib/constants.js';
+import {
+  detectGogCredentials,
+  findServiceAccountFile,
+} from '../lib/gog-credentials.js';
 import { getCalendarAccounts } from '../lib/pipeline-config.js';
 import { getBasePathForEmailDomain } from '../lib/silo-router.js';
+import { resolveCalendarAccounts } from './lib/calendar-accounts.js';
 import {
   type CalendarEvent,
   getAllEvents,
@@ -39,30 +52,7 @@ const googleAuth = createGoogleAuth({
   serviceAccountDir: GOG_CONFIG_DIR,
 });
 
-function findServiceAccountFile(email: string): string | null {
-  const encoded = Buffer.from(email).toString('base64').replace(/=/g, '');
-  const filename = `sa-${encoded}.json`;
-  const fullPath = path.join(GOG_CONFIG_DIR, filename);
-  if (fs.existsSync(fullPath)) return fullPath;
-  return null;
-}
-
 // ========== Config ==========
-
-function buildAccounts(): JeevesAccountConfig[] {
-  return getCalendarAccounts().map((a) => {
-    if (a.calendar && 'tokenFile' in a.calendar) {
-      return { email: a.email, tokenFile: a.calendar.tokenFile };
-    }
-    if (a.calendar && 'serviceAccount' in a.calendar) {
-      return {
-        email: a.email,
-        serviceAccount: findServiceAccountFile(a.email) ?? undefined,
-      };
-    }
-    return { email: a.email };
-  });
-}
 
 const INITIAL_LOOKBACK_DAYS = 90;
 const FORWARD_DAYS = 90;
@@ -209,18 +199,27 @@ async function pollAccount(
 // ========== Main ==========
 
 async function main(): Promise<void> {
-  if (!fs.existsSync(GOG_CLIENT_PATH)) {
-    console.log('[skip] Google OAuth credentials not configured');
+  const configured = getCalendarAccounts();
+  if (configured.length === 0) {
+    console.log('[skip] No calendar accounts configured');
     return;
   }
+
+  // Each account must have its own credential: an unrelated key or
+  // client does not count.
+  const { accounts, problems } = resolveCalendarAccounts(configured, {
+    oauthClient: detectGogCredentials().oauthClient,
+    oauthClientPath: GOG_CLIENT_PATH,
+    findServiceAccount: (email) => findServiceAccountFile(email),
+  });
+  for (const p of problems) console.error(`[credentials] ${p}`);
 
   console.log('Calendar poll started:', new Date().toISOString());
 
   const client = getRunnerClient();
 
   try {
-    const ACCOUNTS = buildAccounts();
-    for (const account of ACCOUNTS) {
+    for (const account of accounts) {
       try {
         await pollAccount(account, client);
       } catch (e) {
@@ -234,6 +233,11 @@ async function main(): Promise<void> {
   }
 
   console.log('\nCalendar poll complete.');
+  if (problems.length > 0) {
+    throw new Error(
+      `calendar/poll: ${String(problems.length)} calendar account(s) have no usable gog credentials: ${problems.join('; ')}`,
+    );
+  }
 }
 
 runScript('calendar/poll', () => {

@@ -140,6 +140,12 @@ Write another extractor that produces files matching the same glob pattern. The 
 
 The `meetings/` domain is the exemplar: three independent extractors (Google Meet, Fathom, Notion) writing to a shared entity store.
 
+## Instance-Agnostic Template
+
+This template is consumed by many Jeeves instances, each with its own scripts repo. It must never carry instance-specific data: owner or customer email addresses, Slack IDs, instance hosts, local drive or home paths, links to a particular instance's scripts repo, or hard-coded per-instance defaults (accounts, date windows). Per-instance values come from the instance's own config (`pipeline-config.json`, job config, environment); when a value is missing, fail loudly rather than inventing a default.
+
+`src/instance-agnostic.test.ts` enforces this as part of `npm test`. It scans tracked files and fails with `file:line: [rule] match` on non-reserved email domains (use `example.com`, `*.test`, etc.), known instance identifiers, real-looking Slack IDs (use the `<kind>000EXAMPLE<n>` placeholders), absolute Windows or home paths, and `jeeves-scripts` repo links. The denylist and allowlists are exported constants at the top of that file. A per-line `instance-agnostic-allow: <reason>` marker exists for genuine exceptions; every use is pinned in the test, so keep them rare.
+
 ## Quality Gates
 
 Quality tooling: ESLint, Prettier, TypeScript, Vitest, Knip, Lefthook.
@@ -170,3 +176,4 @@ Run all four before committing: `npm run typecheck && npm run lint && npm test &
 11. **Use the dispatcher pattern** for scripts that need LLM sessions.
 12. **Add `@module` JSDoc** to every new file per the inline comment standard (spec §9).
 13. **Add prerequisite guards** to entry points that depend on optional integrations.
+14. **Keep the template instance-agnostic.** See [Instance-Agnostic Template](#instance-agnostic-template); the guard test must pass.

@@ -16,7 +16,7 @@ import type { SessionMeta } from './types.js';
 const DM_HEAD = [
   sessionHeader('s1'),
   userMessage('Can you check the build?'),
-  runtimeContext('Jason Williscroft'),
+  runtimeContext('Alex Example'),
 ];
 
 describe('channelFromMeta', () => {
@@ -24,7 +24,7 @@ describe('channelFromMeta', () => {
     [
       'Slack channel with a recorded name',
       {
-        sessionKey: 'agent:main:slack:channel:c0aujrk8dtm',
+        sessionKey: 'agent:main:slack:channel:c000example2',
         channelName: '#ops-ceo',
       },
       'slack:channel:#ops-ceo',
@@ -33,44 +33,44 @@ describe('channelFromMeta', () => {
       'Slack thread session (same channel)',
       {
         sessionKey:
-          'agent:main:slack:channel:c0aujrk8dtm:thread:1790362838.368049',
+          'agent:main:slack:channel:c000example2:thread:1790362838.368049',
         channelName: '#ops-ceo',
       },
       'slack:channel:#ops-ceo',
     ],
     [
       'Slack channel without a name (upper-case id, as pre-upgrade)',
-      { sessionKey: 'agent:main:slack:channel:c0aujrk8dtm' },
-      'slack:channel:C0AUJRK8DTM',
+      { sessionKey: 'agent:main:slack:channel:c000example2' },
+      'slack:channel:C000EXAMPLE2',
     ],
     [
       'Slack DM with the origin label',
       {
-        sessionKey: 'agent:main:slack:direct:u0ab7j9rchf',
-        peerName: 'Jason Williscroft',
+        sessionKey: 'agent:main:slack:direct:u000example2',
+        peerName: 'Alex Example',
       },
-      'slack:dm:jason-williscroft',
+      'slack:dm:alex-example',
     ],
     [
       'Slack DM without a name',
-      { sessionKey: 'agent:main:slack:direct:u0ab7j9rchf:thread:1.2' },
-      'slack:dm:U0AB7J9RCHF',
+      { sessionKey: 'agent:main:slack:direct:u000example2:thread:1.2' },
+      'slack:dm:U000EXAMPLE2',
     ],
     [
       'labelled subagent',
       {
         sessionKey: 'agent:main:subagent:7e326f56',
-        label: 'worker-vc-ops-t',
+        label: 'worker-acme-ops-t',
       },
-      'subagent:label:worker-vc-ops-t',
+      'subagent:label:worker-acme-ops-t',
     ],
     [
       'subagent label with trailing punctuation',
       {
         sessionKey: 'agent:main:subagent:7e326f56',
-        label: 'fix D:\\repos\\karmaniverous\\jeeves-tools.',
+        label: 'fix /repos/acme/widget.',
       },
-      'subagent:label:fix D:\\repos\\karmaniverous\\jeeves-tools',
+      'subagent:label:fix /repos/acme/widget',
     ],
     [
       'meta phase subagent',
@@ -82,7 +82,7 @@ describe('channelFromMeta', () => {
       {
         sessionKey: 'agent:main:subagent:1',
         parent: {
-          sessionKey: 'agent:main:slack:channel:c0aujrk8dtm',
+          sessionKey: 'agent:main:slack:channel:c000example2',
           channelName: '#ops-ceo',
         },
       },
@@ -121,38 +121,39 @@ describe('channelFromMeta', () => {
 describe('resolveChannel', () => {
   it('prefers metadata over runtime-context transcript text', () => {
     const meta: SessionMeta = {
-      sessionKey: 'agent:main:slack:direct:u0ab7j9rchf',
-      peerName: 'Jason Williscroft',
+      sessionKey: 'agent:main:slack:direct:u000example2',
+      peerName: 'Alex Example',
     };
     expect(resolveChannel(meta, DM_HEAD)).toEqual({
-      key: 'slack:dm:jason-williscroft',
-      name: 'DM: Jason Williscroft',
+      key: 'slack:dm:alex-example',
+      name: 'DM: Alex Example',
     });
   });
 
   it('falls back to text rules without absorbing injected runtime context', () => {
     const { key } = resolveChannel(undefined, DM_HEAD);
-    expect(key).toBe('slack:dm:jason-williscroft');
+    expect(key).toBe('slack:dm:alex-example');
     expect(key).not.toMatch(/approved|executables/);
   });
 
   it('still reads the pre-upgrade inline DM form', () => {
     expect(
       resolveChannel(undefined, [
-        userMessage('System: Slack DM from Bob Louthan: status?'),
+        userMessage('System: Slack DM from Sam Sample: status?'),
       ]).key,
-    ).toBe('slack:dm:bob-louthan');
+    ).toBe('slack:dm:sam-sample');
   });
 
   it('strips trailing punctuation from text-rule keys', () => {
     const head = [
       sessionHeader('s2'),
       userMessage(
-        '[Subagent Task] Fix the build in D:\\repos\\karmaniverous\\jeeves-tools.',
+        // instance-agnostic-allow: fixture for Windows drive-path repo detection
+        '[Subagent Task] Fix the build in X:\\repos\\acme\\widget.',
       ),
     ];
     expect(resolveChannel(undefined, head).key).toBe(
-      'subagent:repo:karmaniverous/jeeves-tools',
+      'subagent:repo:acme/widget',
     );
   });
 

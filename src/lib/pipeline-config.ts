@@ -67,19 +67,72 @@ const BucketsSchema = z.object({
   priority: z.array(z.string()),
 });
 
-const ReceiptConfigSchema = z.object({
-  forwardJGS: z.boolean(),
-  sparkReceiptsForwardTo: z.string(),
-});
+/** Deprecated name of `emailConfig.receipt.forwardEnabled`. */
+const LEGACY_RECEIPT_FORWARD_KEY = 'forwardJGS';
+
+/**
+ * Map the deprecated `receipt.forwardJGS` key to `forwardEnabled` so
+ * existing pipeline-config.json files keep loading. When both are
+ * present, `forwardEnabled` wins and the legacy key is ignored. Either
+ * way a one-line deprecation warning is logged (once per process,
+ * because the loaded config is cached).
+ */
+function migrateReceiptConfig(raw: unknown): unknown {
+  if (
+    raw === null ||
+    typeof raw !== 'object' ||
+    !(LEGACY_RECEIPT_FORWARD_KEY in raw)
+  )
+    return raw;
+  const { [LEGACY_RECEIPT_FORWARD_KEY]: legacy, ...rest } = raw as Record<
+    string,
+    unknown
+  >;
+  if ('forwardEnabled' in rest) {
+    console.warn(
+      `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated and ignored because forwardEnabled is set; remove it.`,
+    );
+    return rest;
+  }
+  console.warn(
+    `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated; rename it to forwardEnabled.`,
+  );
+  return { ...rest, forwardEnabled: legacy };
+}
+
+const ReceiptConfigSchema = z.preprocess(
+  migrateReceiptConfig,
+  z.object({
+    /** Whether detected receipts are forwarded to `sparkReceiptsForwardTo`. */
+    forwardEnabled: z.boolean(),
+    /** Address receipts are forwarded to. */
+    sparkReceiptsForwardTo: z.string(),
+  }),
+);
 
 const DigestConfigSchema = z.object({
   slackChannelId: z.string(),
+});
+
+/**
+ * Paced historical Gmail backfill (email/google-workspace/
+ * backfill-historical.ts). Optional: absent means the backfill job has
+ * nothing configured and fails if run without CLI args. No defaults.
+ */
+const BackfillConfigSchema = z.object({
+  /** Gmail accounts to backfill. */
+  accounts: z.array(z.string().min(1)).min(1),
+  /** How far back from now to walk, in days. */
+  lookbackDays: z.number().int().positive(),
+  /** Days searched per run, per account. */
+  windowDays: z.number().int().positive(),
 });
 
 const EmailConfigSchema = z.object({
   reportOnly: z.boolean(),
   receipt: ReceiptConfigSchema,
   digest: DigestConfigSchema,
+  backfill: BackfillConfigSchema.optional(),
 });
 
 const PipelineConfigSchema = z.object({
@@ -96,6 +149,7 @@ export type AccountConfig = z.infer<typeof AccountSchema>;
 export type ImapConnection = z.infer<typeof ImapConnectionSchema>;
 export type BucketsConfig = z.infer<typeof BucketsSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
+export type BackfillConfig = z.infer<typeof BackfillConfigSchema>;
 
 // ── Cached loader ───────────────────────────────────────────────────
 
@@ -150,6 +204,35 @@ export function getEmailAccounts(): string[] {
   return loadPipelineConfig()
     .accounts.filter((a) => a.emailPolling)
     .map((a) => a.email);
+}
+
+/**
+ * Email addresses served by gog (Gmail / Google Workspace), deduplicated:
+ * emailPolling accounts without an `imap` block, plus
+ * `emailConfig.backfill.accounts`. Backfill feeds the same `email-pending`
+ * and `email-updates` queues, so the gog consumers (download,
+ * drain-updates) must run for backfill-only accounts too.
+ */
+export function getGmailAccounts(): string[] {
+  const config = loadPipelineConfig();
+  const polled = config.accounts
+    .filter((a) => a.emailPolling && !a.imap)
+    .map((a) => a.email);
+  return [
+    ...new Set([...polled, ...(config.emailConfig.backfill?.accounts ?? [])]),
+  ];
+}
+
+/**
+ * Every configured bucket name, deduplicated: `buckets.priority` order
+ * first, then any bucket that appears only in `buckets.domains`. Bucket
+ * names double as Gmail labels.
+ */
+export function getBucketNames(): string[] {
+  const { buckets } = loadPipelineConfig();
+  return [
+    ...new Set([...buckets.priority, ...buckets.domains.map((d) => d.bucket)]),
+  ];
 }
 
 /** Match a domain to a bucket name, or null if no match. */

@@ -5,12 +5,12 @@ import { parseWorkerSlackConfig } from './worker-slack-config.js';
 const VALID = {
   accountId: 'vc',
   reads: [
-    { target: 'C0B2Z734KSP', label: '#ops-ceo', limit: 50 },
+    { target: 'C000EXAMPLE1', label: '#ops-ceo', limit: 50 },
     { target: 'channel:D0ABCDEFGH', label: 'DM', threadTs: '1790.1' },
   ],
   posts: [
     {
-      target: 'C0B2Z734KSP',
+      target: 'C000EXAMPLE1',
       purpose: 'the agenda',
       editTs: ['1789000000.000100'],
       pin: false,
@@ -33,35 +33,35 @@ describe('parseWorkerSlackConfig', () => {
     ['an account id with spaces', { accountId: 'v c' }],
     ['an empty account id', { accountId: '' }],
     ['a channel-name read', { reads: [{ target: '#ops', label: 'ops' }] }],
-    ['an empty label', { reads: [{ target: 'C0B2Z734KSP', label: ' ' }] }],
+    ['an empty label', { reads: [{ target: 'C000EXAMPLE1', label: ' ' }] }],
     [
       'a negative limit',
-      { reads: [{ target: 'C0B2Z734KSP', label: 'x', limit: -1 }] },
+      { reads: [{ target: 'C000EXAMPLE1', label: 'x', limit: -1 }] },
     ],
     [
       'a fractional limit',
-      { reads: [{ target: 'C0B2Z734KSP', label: 'x', limit: 2.5 }] },
+      { reads: [{ target: 'C000EXAMPLE1', label: 'x', limit: 2.5 }] },
     ],
     [
       'a huge limit',
-      { reads: [{ target: 'C0B2Z734KSP', label: 'x', limit: 1000 }] },
+      { reads: [{ target: 'C000EXAMPLE1', label: 'x', limit: 1000 }] },
     ],
     [
       'a bad thread ts',
-      { reads: [{ target: 'C0B2Z734KSP', label: 'x', threadTs: 'today' }] },
+      { reads: [{ target: 'C000EXAMPLE1', label: 'x', threadTs: 'today' }] },
     ],
-    ['an empty purpose', { posts: [{ target: 'C0B2Z734KSP', purpose: '' }] }],
+    ['an empty purpose', { posts: [{ target: 'C000EXAMPLE1', purpose: '' }] }],
     [
       'a user post target typo',
       { posts: [{ target: 'user:C1', purpose: 'p' }] },
     ],
     [
       'a bad edit ts',
-      { posts: [{ target: 'C0B2Z734KSP', purpose: 'p', editTs: ['latest'] }] },
+      { posts: [{ target: 'C000EXAMPLE1', purpose: 'p', editTs: ['latest'] }] },
     ],
     [
       'an unknown post key',
-      { posts: [{ target: 'C0B2Z734KSP', purpose: 'p', as_user: true }] },
+      { posts: [{ target: 'C000EXAMPLE1', purpose: 'p', as_user: true }] },
     ],
   ])('rejects %s', (_name, config) => {
     expect(() => parseWorkerSlackConfig(config)).toThrow(
@@ -72,15 +72,15 @@ describe('parseWorkerSlackConfig', () => {
   it.each([
     [
       'bare id then channel: prefix',
-      'C0B2Z734KSP',
-      'channel:C0B2Z734KSP',
-      'channel:C0B2Z734KSP',
+      'C000EXAMPLE1',
+      'channel:C000EXAMPLE1',
+      'channel:C000EXAMPLE1',
     ],
     [
       'channel: prefix then bare id',
-      'channel:C0B2Z734KSP',
-      'c0b2z734ksp',
-      'channel:C0B2Z734KSP',
+      'channel:C000EXAMPLE1',
+      'c000example1',
+      'channel:C000EXAMPLE1',
     ],
     [
       'bare user id then user: prefix',
@@ -110,15 +110,15 @@ describe('parseWorkerSlackConfig', () => {
   it('flags only the later duplicate, at its own index', () => {
     const config = {
       posts: [
-        { target: 'C0B2Z734KSP', purpose: 'a' },
+        { target: 'C000EXAMPLE1', purpose: 'a' },
         { target: 'user:U0ABCDEFGH', purpose: 'b' },
-        { target: ' channel:c0b2z734ksp ', purpose: 'c' },
+        { target: ' channel:c000example1 ', purpose: 'c' },
       ],
     };
     expect(() => parseWorkerSlackConfig(config)).toThrow(
       new Error(
         'Invalid worker-slack config: ' +
-          '✖ Duplicate post target channel:C0B2Z734KSP (" channel:c0b2z734ksp ")\n' +
+          '✖ Duplicate post target channel:C000EXAMPLE1 (" channel:c000example1 ")\n' +
           '  → at posts[2].target',
       ),
     );
@@ -127,8 +127,8 @@ describe('parseWorkerSlackConfig', () => {
   it('accepts distinct post targets', () => {
     const config = {
       posts: [
-        { target: 'C0B2Z734KSP', purpose: 'a' },
-        { target: 'channel:C0B2Z734KSQ', purpose: 'b' },
+        { target: 'C000EXAMPLE1', purpose: 'a' },
+        { target: 'channel:C000EXAMPLE3', purpose: 'b' },
         { target: 'user:U0ABCDEFGH', purpose: 'c' },
       ],
     };

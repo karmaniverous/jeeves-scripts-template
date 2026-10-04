@@ -3,20 +3,25 @@
  * @module poll
  *
  * Unified email poller — dispatches by account type. Accounts without an
- * `imap` block are polled via the gog CLI (Gmail OAuth). Accounts with an
+ * `imap` block are polled via the gog CLI (Gmail via OAuth client or
+ * service-account mailboxes). Accounts with an
  * `imap` block are polled via direct IMAP connection.
  *
  * Called on a schedule as an entry-point script. For gog accounts: searches
  * via `gog gmail search`, runs triage classification, enqueues for download.
  * For IMAP accounts: connects, fetches, parses MIME, writes directly to disk.
- * Trims old JSONL logs after 7 days.
+ * Trims old JSONL logs after 7 days (trim-jsonl.ts).
  *
  * Depends on EMAIL_EVENTS_DIR, emailConfig.reportOnly, and bucket domain
  * config from pipeline-config. Missing config causes classification to
- * return null buckets (labels skipped).
+ * return null buckets (labels skipped). When reportOnly is true, threads
+ * are still ingested but no Gmail label actions (classification or
+ * curation-signal) are enqueued. Search output is schema-validated by
+ * google-workspace/gmail-search.ts. gog
+ * accounts work with an OAuth client or service-account mailboxes; if
+ * gog accounts are configured and neither exists, the run fails.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -27,8 +32,9 @@ import {
 } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { EMAIL_EVENTS_DIR, GOG_CLIENT_PATH } from '../lib/constants.js';
+import { EMAIL_EVENTS_DIR } from '../lib/constants.js';
 import { gogWithRetry } from '../lib/gog.js';
+import { requireGogCredentials } from '../lib/gog-credentials.js';
 import { loadPipelineConfig } from '../lib/pipeline-config.js';
 import {
   getThreadState,
@@ -44,7 +50,13 @@ import {
   isReceiptCandidate,
   looksImportantBySummary,
 } from './google-workspace/email-triage.js';
+import {
+  parseSearchPage,
+  searchArgs,
+} from './google-workspace/gmail-search.js';
+import { enqueueLabelActions } from './google-workspace/label-actions.js';
 import { pollImapAccount } from './imap/poll.js';
+import { trimJsonlFiles } from './trim-jsonl.js';
 
 async function main(): Promise<void> {
   const config = loadPipelineConfig();
@@ -83,36 +95,24 @@ async function main(): Promise<void> {
     }
 
     // ── gog accounts ───────────────────────────────────────────────
-    const hasGog = fs.existsSync(GOG_CLIENT_PATH);
-    if (!hasGog && gogAccounts.length > 0) {
-      console.log(
-        '[gog] OAuth credentials not configured — skipping gog accounts',
-      );
+    // Throws (failed run) when Gmail accounts exist but gog has neither
+    // an OAuth client nor service-account mailboxes.
+    const hasGog = requireGogCredentials('email/poll', gogAccounts.length);
+    if (reportOnly && hasGog) {
+      console.log('[gog] reportOnly: no Gmail label actions will be enqueued');
     }
 
     for (const acctCfg of hasGog ? gogAccounts : []) {
       const account = acctCfg.email;
       const state = loadScalarState(account, client);
 
-      const out = gogWithRetry(
-        [
-          'gmail',
-          'search',
-          query,
-          '--max',
-          String(max),
-          '--json',
-          '--account',
-          account,
-        ],
-        { retries: 2, backoffMs: 5000 },
+      const { threads } = parseSearchPage(
+        gogWithRetry(searchArgs(account, query, max), {
+          retries: 2,
+          backoffMs: 5000,
+        }),
+        account,
       );
-      const payload = out
-        ? (JSON.parse(out) as {
-            threads?: Array<Record<string, unknown>>;
-          })
-        : {};
-      const threads = payload.threads ?? [];
       let newC = 0,
         updC = 0,
         fetchC = 0,
@@ -120,17 +120,16 @@ async function main(): Promise<void> {
         lblC = 0;
 
       for (const t of threads) {
-        const tid = (t.threadId as string) || (t.id as string) || '';
-        if (!tid) continue;
-        const subj = (t.subject as string) || '';
-        const snip = (t.snippet as string) || '';
-        const from = (t.from as string) || '';
-        const to = (t.to as string) || '';
-        const date = (t.date as string) || null;
-        const mc = Number.isFinite(t.messageCount)
-          ? (t.messageCount as number)
-          : null;
-        const labels = Array.isArray(t.labels) ? (t.labels as string[]) : [];
+        const {
+          threadId: tid,
+          subject: subj,
+          snippet: snip,
+          from,
+          to,
+          date,
+          messageCount: mc,
+          labels,
+        } = t;
 
         const rc = isReceiptCandidate(subj, snip, from, account);
         const jc = !rc && isJunkCandidate(subj, snip, from);
@@ -211,21 +210,17 @@ async function main(): Promise<void> {
             labelApplied,
           });
 
-          const stamp = nowIso();
-          for (const lbl of labelsToApply) {
-            client.enqueue('email-updates', {
-              account,
-              messageId: msgId,
-              threadId: tid,
-              action: 'addLabel',
-              label: lbl,
-              source: 'poll-classification',
-              reason: 'Auto-label from triage classification',
-              createdAt: stamp,
-            });
-            labelApplied[lbl] = stamp;
-            labelC++;
-          }
+          const r = enqueueLabelActions(client, {
+            account,
+            messageId: msgId,
+            threadId: tid,
+            labels: labelsToApply,
+            source: 'poll-classification',
+            reason: 'Auto-label from triage classification',
+            reportOnly,
+          });
+          Object.assign(labelApplied, r.applied);
+          labelC += r.enqueued;
         }
         lblC += labelC;
 
@@ -261,6 +256,7 @@ async function main(): Promise<void> {
             labels,
             query,
             client,
+            reportOnly,
           });
           fetchC++;
           msgC += r.newMessages;
@@ -287,39 +283,6 @@ async function main(): Promise<void> {
     trimJsonlFiles(EMAIL_EVENTS_DIR, 7);
   } finally {
     client.close();
-  }
-}
-
-function trimJsonlFiles(dir: string, maxDays: number): void {
-  if (!fs.existsSync(dir)) return;
-  const cutoff = Date.now() - maxDays * 24 * 60 * 60 * 1000;
-
-  for (const entry of fs.readdirSync(dir)) {
-    if (!entry.endsWith('.jsonl')) continue;
-    if (entry.startsWith('_runs-')) continue;
-
-    const filePath = path.join(dir, entry);
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, 'utf8');
-    } catch {
-      continue;
-    }
-
-    const kept: string[] = [];
-    for (const line of content.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const obj = JSON.parse(line) as { at?: string };
-        if (obj.at && new Date(obj.at).getTime() >= cutoff) {
-          kept.push(line);
-        }
-      } catch {
-        kept.push(line);
-      }
-    }
-
-    fs.writeFileSync(filePath, kept.length > 0 ? kept.join('\n') + '\n' : '');
   }
 }
 

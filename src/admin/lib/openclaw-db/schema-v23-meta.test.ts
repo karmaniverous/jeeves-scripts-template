@@ -79,9 +79,9 @@ describe('parseNodeEntry / channelNameFromLabel', () => {
   });
 
   it.each([
-    ['slack:t0aad79er2b#jeeves-meta', '#jeeves-meta'],
-    ['slack:g-c0ab0nhafmh', undefined],
-    ["Slack thread #D0AMFV5SGN8: Done. Here's", undefined],
+    ['slack:t000example2#jeeves-meta', '#jeeves-meta'],
+    ['slack:g-c000example3', undefined],
+    ["Slack thread #D000EXAMPLE1: Done. Here's", undefined],
     [undefined, undefined],
   ])('channelNameFromLabel(%j)', (label, name) => {
     expect(channelNameFromLabel(label)).toBe(name);
@@ -92,14 +92,14 @@ describe('loadV23Meta', () => {
   it('resolves names from nodes, conversations, parents and archive keys', () => {
     const fx = createV23Fixture(root);
     fx.addHotSession('ch', [sessionHeader('ch')], [], {
-      key: 'agent:main:slack:channel:c0aujrk8dtm',
-      entry: slackChannelEntry('C0AUJRK8DTM', 'ops-ceo'),
+      key: 'agent:main:slack:channel:c000example2',
+      entry: slackChannelEntry('C000EXAMPLE2', 'ops-ceo'),
     });
     fx.addHotSession('sub', [sessionHeader('sub')], [], {
       key: 'agent:main:subagent:1',
-      entry: { spawnedBy: 'agent:main:slack:channel:c0aujrk8dtm' },
+      entry: { spawnedBy: 'agent:main:slack:channel:c000example2' },
     });
-    fx.addConversation('C0NAMEDXX', 'slack:t0aad79er2b#vc-dev');
+    fx.addConversation('C0NAMEDXX', 'slack:t000example2#acme-dev');
     fx.addHotSession('thr', [sessionHeader('thr')], [], {
       key: 'agent:main:slack:channel:c0namedxx:thread:1.2',
     });
@@ -110,10 +110,10 @@ describe('loadV23Meta', () => {
       const meta = loadV23Meta(db);
       expect(meta.forSession('ch')?.channelName).toBe('#ops-ceo');
       expect(meta.forSession('sub')?.parent?.channelName).toBe('#ops-ceo');
-      expect(meta.forSession('thr')?.channelName).toBe('#vc-dev');
+      expect(meta.forSession('thr')?.channelName).toBe('#acme-dev');
       expect(meta.forSession('missing')).toBeUndefined();
       expect(
-        meta.forKey('agent:main:slack:channel:c0aujrk8dtm:thread:9')
+        meta.forKey('agent:main:slack:channel:c000example2:thread:9')
           .channelName,
       ).toBe('#ops-ceo');
     } finally {
@@ -131,8 +131,8 @@ describe('loadV23Meta parent linkage', () => {
       entry: { spawnedBy, spawnDepth: 1 },
     });
     fx.addHotSession('ch', [sessionHeader('ch')], [], {
-      key: 'agent:main:slack:channel:c0aujrk8dtm',
-      entry: slackChannelEntry('C0AUJRK8DTM', 'ops-ceo'),
+      key: 'agent:main:slack:channel:c000example2',
+      entry: slackChannelEntry('C000EXAMPLE2', 'ops-ceo'),
     });
     fx.addHotSession(
       's1',
@@ -140,7 +140,7 @@ describe('loadV23Meta parent linkage', () => {
       [],
       node(
         'agent:main:subagent:1',
-        'agent:main:slack:channel:c0aujrk8dtm',
+        'agent:main:slack:channel:c000example2',
         'orchestrator',
       ),
     );
@@ -204,13 +204,13 @@ describe('scanOpenClawDb channel naming (2026.9 events)', () => {
       [
         sessionHeader('dm'),
         userMessage('hi'),
-        runtimeContext('Jason Williscroft'),
+        runtimeContext('Alex Example'),
         assistantUsage(T10),
       ],
       [2],
       {
-        key: 'agent:main:slack:direct:u0ab7j9rchf',
-        entry: slackDirectEntry('U0AB7J9RCHF', 'Jason Williscroft'),
+        key: 'agent:main:slack:direct:u000example2',
+        entry: slackDirectEntry('U000EXAMPLE2', 'Alex Example'),
       },
     );
     fx.addHotSession(
@@ -226,7 +226,7 @@ describe('scanOpenClawDb channel naming (2026.9 events)', () => {
     fx.addHotSession('kid', [sessionHeader('kid'), assistantUsage(T10)], [], {
       key: 'agent:main:subagent:3',
       label: 'jeeves-tools e2e #5',
-      entry: { spawnedBy: 'agent:main:slack:direct:u0ab7j9rchf' },
+      entry: { spawnedBy: 'agent:main:slack:direct:u000example2' },
     });
     fx.addHotSession(
       'runner',
@@ -240,16 +240,16 @@ describe('scanOpenClawDb channel naming (2026.9 events)', () => {
     );
     fx.addHotSession('legacy', [
       sessionHeader('legacy'),
-      userMessage('[Subagent Task] in D:\\repos\\karmaniverous\\jeeves-tools.'),
+      userMessage('[Subagent Task] in /repos/acme/widget.'),
       assistantUsage(T10),
     ]);
     fx.close();
 
     expect(await scan(fx.dbPath, fx.sessionsDir)).toEqual([
       'runner:generate',
-      'slack:dm:jason-williscroft',
+      'slack:dm:alex-example',
       'subagent:label:worker-refresh-',
-      'subagent:repo:karmaniverous/jeeves-tools',
+      'subagent:repo:acme/widget',
     ]);
   });
 });

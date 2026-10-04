@@ -73,10 +73,10 @@ describe('generateSnippet', () => {
 describe('normalizeMessage — threadRoot', () => {
   it('uses first Message-ID from References header', () => {
     const mail = makeMail({
-      references: ['<ref1@test.com>', '<ref2@test.com>'],
+      references: ['<ref1@mail.test>', '<ref2@mail.test>'],
     });
     const msg = normalizeMessage(makeFetch(), mail);
-    expect(msg.computed.threadRoot).toBe('<ref1@test.com>');
+    expect(msg.computed.threadRoot).toBe('<ref1@mail.test>');
   });
 
   it('uses own messageId when References is absent', () => {
@@ -92,15 +92,17 @@ describe('normalizeMessage — threadRoot', () => {
   });
 
   it('handles single string References', () => {
-    const mail = makeMail({ references: '<single@ref.com>' });
+    const mail = makeMail({ references: '<single@ref.example>' });
     const msg = normalizeMessage(makeFetch(), mail);
-    expect(msg.computed.threadRoot).toBe('<single@ref.com>');
+    expect(msg.computed.threadRoot).toBe('<single@ref.example>');
   });
 
   it('handles whitespace-separated References string', () => {
-    const mail = makeMail({ references: '<first@ref.com> <second@ref.com>' });
+    const mail = makeMail({
+      references: '<first@ref.example> <second@ref.example>',
+    });
     const msg = normalizeMessage(makeFetch(), mail);
-    expect(msg.computed.threadRoot).toBe('<first@ref.com>');
+    expect(msg.computed.threadRoot).toBe('<first@ref.example>');
   });
 });
 

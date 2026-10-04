@@ -7,34 +7,44 @@
  *
  * Run manually as an entry-point script. Iterates all thread-state
  * entries in SQLite, checks for missing labelApplied records against
- * existing classification fields, and enqueues addLabel actions to
- * `email-updates`. Supports --live flag; defaults to dry-run.
+ * existing classification fields (receipt, junk, and the thread's bucket
+ * when it is one of the configured `buckets` in pipeline-config), and
+ * enqueues addLabel actions to `email-updates` via label-actions.ts.
+ * Supports --live flag; defaults to dry-run. Enqueues nothing when
+ * emailConfig.reportOnly is true.
  *
  * Depends on email-state for thread data access and pipeline-config
- * for the account list.
+ * for the account list, bucket names and reportOnly.
  */
 
-import { nowIso, runScript } from '@karmaniverous/jeeves';
+import { runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { getEmailAccounts } from '../../lib/pipeline-config.js';
+import {
+  getEmailAccounts,
+  loadPipelineConfig,
+} from '../../lib/pipeline-config.js';
 import { getThreadState, seenKey, setThreadState } from '../email-state.js';
+import {
+  computeLabelsToApply,
+  configuredBucket,
+  newLabelCounts,
+} from './email-triage.js';
+import { enqueueLabelActions } from './label-actions.js';
 
 function main(): void {
   const live = process.argv.includes('--live');
+  const reportOnly = loadPipelineConfig().emailConfig.reportOnly;
   console.log(`Mode: ${live ? 'LIVE' : 'DRY-RUN'}\n`);
+  if (live && reportOnly)
+    console.log('reportOnly: no Gmail label actions enqueued\n');
 
   const accounts = getEmailAccounts();
   const client = getRunnerClient();
 
   try {
     let totalChecked = 0;
-    const counts: Record<string, number> = {
-      receipt: 0,
-      junk: 0,
-      VC: 0,
-      JGS: 0,
-    };
+    const counts = newLabelCounts();
 
     for (const account of accounts) {
       const keys = client.listItemKeys('email', seenKey(account));
@@ -53,48 +63,36 @@ function main(): void {
         if (!ts) continue;
 
         const applied = ts.labelApplied || {};
-        const labelsToApply: string[] = [];
-
-        if (ts.receiptCandidate && !applied['receipt'])
-          labelsToApply.push('receipt');
-        if (ts.junkCandidate && !applied['junk']) labelsToApply.push('junk');
-        if (ts.bucket === 'VC' && !applied['VC']) labelsToApply.push('VC');
-        if (ts.bucket === 'JGS' && !applied['JGS']) labelsToApply.push('JGS');
-
+        const labelsToApply = computeLabelsToApply({
+          receiptCandidate: !!ts.receiptCandidate,
+          junkCandidate: !!ts.junkCandidate,
+          bucket: configuredBucket(ts.bucket),
+          labelApplied: applied,
+        });
         if (labelsToApply.length === 0) continue;
 
-        const msgId =
-          (ts.seenMessageIds && Object.keys(ts.seenMessageIds)[0]) || tid;
-        const stamp = nowIso();
-        const updatedApplied: Record<string, string> = { ...applied };
+        const r = enqueueLabelActions(client, {
+          account,
+          messageId:
+            (ts.seenMessageIds && Object.keys(ts.seenMessageIds)[0]) || tid,
+          threadId: tid,
+          labels: labelsToApply,
+          source: 'backfill-labels',
+          reason: 'Backfill label for pre-existing classification',
+          reportOnly: !live || reportOnly,
+        });
+        for (const lbl of labelsToApply) counts[lbl] = (counts[lbl] ?? 0) + 1;
+        acctLabels += labelsToApply.length;
 
-        for (const lbl of labelsToApply) {
-          if (live) {
-            client.enqueue('email-updates', {
-              account,
-              messageId: msgId,
-              threadId: tid,
-              action: 'addLabel',
-              label: lbl,
-              source: 'backfill-labels',
-              reason: 'Backfill label for pre-existing classification',
-              createdAt: stamp,
-            });
-            updatedApplied[lbl] = stamp;
-          }
-          counts[lbl]++;
-          acctLabels++;
-        }
-
-        if (live && labelsToApply.length > 0) {
+        if (r.enqueued > 0) {
           setThreadState(client, account, tid, {
             ...ts,
-            labelApplied: updatedApplied,
+            labelApplied: { ...applied, ...r.applied },
           });
         }
       }
 
-      console.log(`  → ${String(acctLabels)} labels to enqueue`);
+      console.log(`  -> ${String(acctLabels)} labels to enqueue`);
     }
 
     console.log('\n=== Summary ===');

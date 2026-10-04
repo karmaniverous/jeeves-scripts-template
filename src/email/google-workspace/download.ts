@@ -8,10 +8,14 @@
  * Called on a schedule as an entry-point script. For each queued thread,
  * fetches messages via `gog gmail thread` or `gog gmail get`, extracts
  * headers/body/attachments, and writes per-message JSON files under
- * the account's threads directory. Logs run stats to EMAIL_EVENTS_DIR.
+ * the account's threads directory (records built by message-record.ts).
+ * Logs run stats to EMAIL_EVENTS_DIR.
  *
  * Depends on EMAIL_EVENTS_DIR for run logging and silo-router for
- * per-account thread storage paths.
+ * per-account thread storage paths. Skips when no gog accounts are
+ * configured (getGmailAccounts(): polled Gmail accounts plus
+ * emailConfig.backfill.accounts); fails when there are some but gog has
+ * no OAuth client and no service-account mailboxes.
  */
 
 import fs from 'node:fs';
@@ -28,20 +32,12 @@ import {
 } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import {
-  EMAIL_EVENTS_DIR,
-  GOG_CLIENT_PATH,
-  GOG_CONFIG_DIR,
-} from '../../lib/constants.js';
-import {
-  extractAttachments,
-  extractTextFromPayload,
-  type GmailHeader,
-  type GmailPayloadPart,
-  headerValue,
-} from '../../lib/email.js';
+import { EMAIL_EVENTS_DIR } from '../../lib/constants.js';
 import { gogWithRetry } from '../../lib/gog.js';
+import { requireGogCredentials } from '../../lib/gog-credentials.js';
+import { getGmailAccounts } from '../../lib/pipeline-config.js';
 import { getThreadsPath } from '../email-cache.js';
+import { messageRecord, messageSummary } from './message-record.js';
 
 function messageExists(
   account: string,
@@ -81,16 +77,8 @@ function downloadMessage(
 }
 
 function main(): void {
-  const hasGogOAuth = fs.existsSync(GOG_CLIENT_PATH);
-  const hasGogServiceAccount =
-    fs.existsSync(path.join(GOG_CONFIG_DIR, 'data')) &&
-    fs
-      .readdirSync(path.join(GOG_CONFIG_DIR, 'data'))
-      .some((f) => f.startsWith('sa-'));
-  if (!hasGogOAuth && !hasGogServiceAccount) {
-    console.log(
-      '[skip] No Google OAuth or service account credentials configured',
-    );
+  if (!requireGogCredentials('email/download', getGmailAccounts().length)) {
+    console.log('[skip] No Gmail accounts configured');
     return;
   }
 
@@ -174,64 +162,29 @@ function main(): void {
           // Process messages from full-thread fetch
           const messagesMap: Record<
             string,
-            { id: string; snippet: string; date: string }
+            ReturnType<typeof messageSummary>
           > = {};
           for (const message of threadMessages) {
             const messageId = message.id as string;
             totalMsg++;
             if (messageExists(account, threadId, messageId)) {
               // Still record in map for thread.json update
-              const msgPayload = message.payload as
-                (GmailPayloadPart & { headers?: GmailHeader[] }) | undefined;
-              const hdrs = msgPayload?.headers ?? [];
-              messagesMap[messageId] = {
-                id: messageId,
-                snippet: (message.snippet as string | undefined) ?? '',
-                date: headerValue(hdrs, 'Date'),
-              };
+              messagesMap[messageId] = messageSummary(messageId, message);
               skipMsg++;
               continue;
             }
             try {
               console.log(`Downloading ${account}/${threadId}/${messageId}`);
-              const msgPayload = message.payload as
-                (GmailPayloadPart & { headers?: GmailHeader[] }) | undefined;
-              const hdrs = msgPayload?.headers ?? [];
-              const body = extractTextFromPayload(
-                message.payload as GmailPayloadPart,
+              const m = messageRecord(
+                { account, threadId, messageId },
+                message,
+                nowIso(),
               );
-              const atts = extractAttachments(
-                message.payload as GmailPayloadPart,
-              );
-              saveMessage({
-                messageId,
-                threadId,
-                account,
-                subject: headerValue(hdrs, 'Subject'),
-                from: headerValue(hdrs, 'From'),
-                to: headerValue(hdrs, 'To'),
-                cc: headerValue(hdrs, 'Cc'),
-                date: headerValue(hdrs, 'Date'),
-                internalDateMs: message.internalDate
-                  ? Number(message.internalDate)
-                  : null,
-                labels: message.labelIds ?? [],
-                body: { text: body.text, html: body.html },
-                attachments: atts.map((a) => ({
-                  filename: a.filename,
-                  mimeType: a.mimeType,
-                  size: a.size,
-                })),
-                downloadedAt: nowIso(),
-              });
-              messagesMap[messageId] = {
-                id: messageId,
-                snippet: (message.snippet as string | undefined) ?? '',
-                date: headerValue(hdrs, 'Date'),
-              };
+              saveMessage(m.record);
+              messagesMap[messageId] = messageSummary(messageId, message);
               dlMsg++;
               thDl++;
-              dlAtt += atts.length;
+              dlAtt += m.attachmentCount;
             } catch (e) {
               console.error(
                 `Failed ${messageId}:`,
@@ -282,39 +235,15 @@ function main(): void {
               thFail++;
               continue;
             }
-            const msgPayload = message.payload as
-              (GmailPayloadPart & { headers?: GmailHeader[] }) | undefined;
-            const hdrs = msgPayload?.headers ?? [];
-            const body = extractTextFromPayload(
-              message.payload as GmailPayloadPart,
+            const m = messageRecord(
+              { account, threadId, messageId },
+              message,
+              nowIso(),
             );
-            const atts = extractAttachments(
-              message.payload as GmailPayloadPart,
-            );
-            saveMessage({
-              messageId,
-              threadId,
-              account,
-              subject: headerValue(hdrs, 'Subject'),
-              from: headerValue(hdrs, 'From'),
-              to: headerValue(hdrs, 'To'),
-              cc: headerValue(hdrs, 'Cc'),
-              date: headerValue(hdrs, 'Date'),
-              internalDateMs: message.internalDate
-                ? Number(message.internalDate)
-                : null,
-              labels: message.labelIds ?? [],
-              body: { text: body.text, html: body.html },
-              attachments: atts.map((a) => ({
-                filename: a.filename,
-                mimeType: a.mimeType,
-                size: a.size,
-              })),
-              downloadedAt: nowIso(),
-            });
+            saveMessage(m.record);
             dlMsg++;
             thDl++;
-            dlAtt += atts.length;
+            dlAtt += m.attachmentCount;
             sleepMs(100);
           } catch (e) {
             console.error(

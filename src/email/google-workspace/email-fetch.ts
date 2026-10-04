@@ -4,10 +4,11 @@
  * Fetch full thread metadata from Gmail, update the thread cache and
  * provenance, detect label changes, and enqueue threads for body download.
  *
- * Called by poll.ts and backfill-historical.ts for threads that look
- * important. Fetches via `gog gmail thread get`, builds CacheMessages,
- * detects human label curation signals, manages pending follow-up
- * tracking, and enqueues to `email-pending` for download.
+ * Called by poll.ts and backfill-window.ts. Fetches via
+ * `gog gmail thread get`, builds CacheMessages, detects human label
+ * curation signals (enqueued on `email-updates` unless
+ * `emailConfig.reportOnly`, via label-actions.ts), manages pending
+ * follow-up tracking, and enqueues to `email-pending` for download.
  *
  * Depends on EMAIL_EVENTS_DIR for event logging and pipeline-config
  * bucket settings for triage decisions.
@@ -32,8 +33,13 @@ import {
   loadCache,
   type ProvenanceEntry,
 } from '../email-cache.js';
-import { getThreadState, setThreadState } from '../email-state.js';
+import {
+  type EmailStoreClient,
+  getThreadState,
+  setThreadState,
+} from '../email-state.js';
 import { pendingKey, shouldExpectResponse } from './email-triage.js';
+import { curationSignalActions, enqueueEmailUpdates } from './label-actions.js';
 
 interface GmailMessage {
   id: string;
@@ -45,7 +51,7 @@ interface GmailMessage {
 
 /** Insert or merge a pending follow-up entry in the runner store. */
 export function upsertPending(
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'getItem' | 'setItem'>,
   item: Record<string, unknown>,
 ): void {
   const k = item.key as string;
@@ -76,7 +82,9 @@ export function fetchThreadMetadata(params: {
   bucket: string | null;
   labels: string[];
   query: string;
-  client: RunnerClient;
+  client: EmailStoreClient;
+  /** When true, curation signals are detected but not enqueued. */
+  reportOnly: boolean;
 }): { newMessages: number } {
   const { account, threadId, query, client } = params;
   const prevObj = getThreadState(client, account, threadId);
@@ -143,30 +151,18 @@ export function fetchThreadMetadata(params: {
     const cached = cache?.messages?.[msgId]?.labels;
     if (cached) {
       provenance.push(...detectLabelChanges(cached, lids, msgId));
-      const cSet = new Set(cached);
-      const nSet = new Set(lids);
-      if (!cSet.has('INBOX') && nSet.has('INBOX') && seenMessageIds[msgId])
-        client.enqueue('email-updates', {
+      enqueueEmailUpdates(
+        client,
+        curationSignalActions({
           account,
-          messageId: msgId,
           threadId,
-          action: 'addLabel',
-          label: 'watch',
-          source: 'poll-curation-signal',
-          reason: 'Human moved archived email back to inbox',
-          createdAt: nowIso(),
-        });
-      if (nSet.has('watch') && !nSet.has('INBOX'))
-        client.enqueue('email-updates', {
-          account,
           messageId: msgId,
-          threadId,
-          action: 'removeLabel',
-          label: 'watch',
-          source: 'poll-curation-signal',
-          reason: 'Watched email archived',
-          createdAt: nowIso(),
-        });
+          cachedLabels: cached,
+          currentLabels: lids,
+          seenBefore: !!seenMessageIds[msgId],
+        }),
+        params.reportOnly,
+      );
     }
 
     cacheMessages[msgId] = {

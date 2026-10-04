@@ -29,6 +29,15 @@ export interface ThreadState {
   labelApplied?: Record<string, string>;
 }
 
+/**
+ * Runner store operations used for per-thread state and the email
+ * queues. Narrower than RunnerClient so tests can supply a typed fake.
+ */
+export type EmailStoreClient = Pick<
+  RunnerClient,
+  'getState' | 'setState' | 'getItem' | 'setItem' | 'enqueue'
+>;
+
 const SEEN_KEY_PREFIX = '.seenThreadIds';
 
 /** Build the SQLite item-group key for an account's seen-thread map. */
@@ -39,7 +48,7 @@ export function seenKey(account: string): string {
 /** Load per-account scalar state (last-poll timestamp) from SQLite. */
 export function loadScalarState(
   account: string,
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'getState'>,
 ): { account: string; updatedAt: string | null } {
   const stateJson = client.getState('email', account + '.state');
   return stateJson
@@ -53,7 +62,7 @@ export function loadScalarState(
 /** Persist per-account scalar state with an updated timestamp. */
 export function saveScalarState(
   state: { account: string; updatedAt: string | null },
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'setState'>,
 ): void {
   state.updatedAt = nowIso();
   client.setState('email', state.account + '.state', JSON.stringify(state));
@@ -61,7 +70,7 @@ export function saveScalarState(
 
 /** Read a thread's classification/seen state from SQLite, or null. */
 export function getThreadState(
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'getItem'>,
   account: string,
   threadId: string,
 ): ThreadState | null {
@@ -73,7 +82,7 @@ export function getThreadState(
 
 /** Write a thread's classification/seen state to SQLite. */
 export function setThreadState(
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'setItem'>,
   account: string,
   threadId: string,
   value: ThreadState,

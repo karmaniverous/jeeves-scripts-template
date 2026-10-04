@@ -33,11 +33,15 @@ describe('gog', () => {
     it('calls runWithRetry with correct binary and args', () => {
       vi.mocked(runWithRetry).mockReturnValue('success output');
 
-      const result = gogWithRetry(['mail', 'list', '--account=test@x.com']);
+      const result = gogWithRetry([
+        'mail',
+        'list',
+        '--account=test@example.com',
+      ]);
       expect(result).toBe('success output');
       expect(runWithRetry).toHaveBeenCalledWith(
         GOG,
-        ['mail', 'list', '--account=test@x.com'],
+        ['mail', 'list', '--account=test@example.com'],
         expect.objectContaining({
           retries: 2,
           backoffMs: 5000,

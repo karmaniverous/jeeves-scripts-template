@@ -12,18 +12,33 @@
  * EMAIL_EVENTS_DIR.
  *
  * Depends on EMAIL_EVENTS_DIR for run logging. Rate limit is hardcoded
- * via MAX_CALLS_PER_MINUTE constant.
+ * via MAX_CALLS_PER_MINUTE constant. Skips when no gog accounts are
+ * configured (getGmailAccounts(): polled Gmail accounts plus
+ * emailConfig.backfill.accounts). Fails when there are some but gog has
+ * no OAuth client and no service-account mailboxes, whether or not
+ * reportOnly is set. Applies nothing (and dequeues nothing) when
+ * emailConfig.reportOnly is true. See label-actions.ts planDrain().
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { appendJsonl, nowIso, runScript, sleepMs } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { EMAIL_EVENTS_DIR, GOG_CLIENT_PATH } from '../../lib/constants.js';
+import { EMAIL_EVENTS_DIR } from '../../lib/constants.js';
 import { gogWithRetry } from '../../lib/gog.js';
+import {
+  getGmailAccounts,
+  loadPipelineConfig,
+} from '../../lib/pipeline-config.js';
 import { loadCache, saveCache } from '../email-cache.js';
+import {
+  EMAIL_UPDATES_QUEUE,
+  type LabelChanges,
+  labelChangesFor,
+  planDrain,
+  threadModifyArgs,
+} from './label-actions.js';
 
 const MAX_CALLS_PER_MINUTE = 60;
 
@@ -36,85 +51,13 @@ interface UpdateEntry {
   source: string;
 }
 
-function applyLabelUpdate(entry: UpdateEntry): {
-  addLabels: string[];
-  removeLabels: string[];
-} {
-  const { account, action, label } = entry;
-  const tid = entry.threadId;
-
-  if (action === 'addLabel' && label) {
-    gogWithRetry(
-      ['gmail', 'thread', 'modify', tid, '--add', label, '--account', account],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [label], removeLabels: [] };
-  }
-  if (action === 'removeLabel' && label) {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        label,
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: [label] };
-  }
-  if (action === 'archive') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        'INBOX',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: ['INBOX'] };
-  }
-  if (action === 'trash') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--add',
-        'TRASH',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: ['TRASH'], removeLabels: [] };
-  }
-  if (action === 'markRead') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        'UNREAD',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: ['UNREAD'] };
-  }
-  throw new Error(`Unknown action: ${action}`);
+function applyLabelUpdate(entry: UpdateEntry): LabelChanges {
+  const changes = labelChangesFor(entry.action, entry.label);
+  gogWithRetry(threadModifyArgs(entry.account, entry.threadId, changes), {
+    retries: 1,
+    backoffMs: 3000,
+  });
+  return changes;
 }
 
 function processEntry(entry: UpdateEntry): {
@@ -156,14 +99,24 @@ function processEntry(entry: UpdateEntry): {
 }
 
 function main(): void {
-  if (!fs.existsSync(GOG_CLIENT_PATH)) {
-    console.log('[skip] Google OAuth credentials not configured');
+  const plan = planDrain(
+    loadPipelineConfig().emailConfig.reportOnly,
+    getGmailAccounts().length,
+  );
+  if (plan === 'report-only') {
+    console.log(
+      '[report-only] emailConfig.reportOnly is true: no Gmail changes applied; queue left untouched',
+    );
+    return;
+  }
+  if (plan === 'skip') {
+    console.log('[skip] No Gmail accounts configured');
     return;
   }
 
   const client = getRunnerClient();
   try {
-    const items = client.dequeue('email-updates', 100);
+    const items = client.dequeue(EMAIL_UPDATES_QUEUE, 100);
     if (items.length === 0) {
       console.log('Queue is empty');
       return;

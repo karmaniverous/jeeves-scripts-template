@@ -112,7 +112,7 @@ describe('scanOpenClawDb', () => {
     );
     fx.addColdSession('s2', [
       header('s2'),
-      user('[Subagent Task] work in D:\\repos\\acme\\widget'),
+      user('[Subagent Task] work in /repos/acme/widget'),
       usage(T10, 7),
     ]);
     fx.addArchive('s3', [

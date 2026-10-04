@@ -14,9 +14,9 @@
  * there is nothing to post):
  *
  *     ```slack-posts
- *     [{ "channel": "C0B2Z734KSP", "text": "…", "pin": true },
- *      { "channel": "C0B2Z734KSP", "thread_ts": "1790…", "text": "…" },
- *      { "channel": "C0B2Z734KSP", "edit_ts": "1789…", "text": "…" }]
+ *     [{ "channel": "C000EXAMPLE1", "text": "…", "pin": true },
+ *      { "channel": "C000EXAMPLE1", "thread_ts": "1790…", "text": "…" },
+ *      { "channel": "C000EXAMPLE1", "edit_ts": "1789…", "text": "…" }]
  *     ```
  */
 
@@ -52,7 +52,7 @@ const FENCE =
 
 /** A labelled Slack read made before dispatch. */
 export interface SlackContextBlock {
-  /** Human label, e.g. `#ops-ceo (C0B2Z734KSP)`. */
+  /** Human label, e.g. `#ops-ceo (C000EXAMPLE1)`. */
   label: string;
   /** Messages, oldest first. */
   messages: SlackMessage[];

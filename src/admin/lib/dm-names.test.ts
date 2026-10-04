@@ -23,7 +23,7 @@ function buckets(): Map<string, HourlyBucket> {
       {
         hour: 'h1',
         channels: {
-          'slack:dm:U0B2YNF9MF1': { models: { m: entry(5), n: entry(1) } },
+          'slack:dm:U000EXAMPLE1': { models: { m: entry(5), n: entry(1) } },
           'slack:dm:justin-ragsdale': { models: { m: entry(2) } },
           'slack:dm:W0ENTERPRISE': { models: { m: entry(7) } },
           'slack:dm:bob': { models: { m: entry(3) } },
@@ -44,7 +44,7 @@ function buckets(): Map<string, HourlyBucket> {
 describe('dmUserIds', () => {
   it('finds only upper-case user-id DM keys', () => {
     expect(dmUserIds(buckets())).toEqual([
-      'U0B2YNF9MF1',
+      'U000EXAMPLE1',
       'U0UNKNOWN1',
       'W0ENTERPRISE',
     ]);
@@ -59,16 +59,16 @@ describe('resolveDmNames', () => {
         : Promise.reject(new Error('gateway down')),
     );
     const { names, learned } = await resolveDmNames(
-      ['U0B2YNF9MF1', 'U0MAPPED01', 'U0UNKNOWN1', 'W0ENTERPRISE'],
+      ['U000EXAMPLE1', 'U0MAPPED01', 'U0UNKNOWN1', 'W0ENTERPRISE'],
       {
-        cache: { U0B2YNF9MF1: 'Justin Ragsdale' },
+        cache: { U000EXAMPLE1: 'Justin Ragsdale' },
         userMap: { U0MAPPED01: 'Mapped Person' },
         lookup,
       },
     );
 
     expect(Object.fromEntries(names)).toEqual({
-      U0B2YNF9MF1: 'Justin Ragsdale',
+      U000EXAMPLE1: 'Justin Ragsdale',
       U0MAPPED01: 'Mapped Person',
       W0ENTERPRISE: 'Ent User',
     });
@@ -80,7 +80,7 @@ describe('resolveDmNames', () => {
   });
 
   it('ignores names that slugify to nothing', async () => {
-    const { names } = await resolveDmNames(['U0B2YNF9MF1'], {
+    const { names } = await resolveDmNames(['U000EXAMPLE1'], {
       cache: {},
       userMap: {},
       lookup: () => Promise.resolve('   ??? '),
@@ -95,7 +95,7 @@ describe('renameDmChannels', () => {
     const renamed = renameDmChannels(
       b,
       new Map([
-        ['U0B2YNF9MF1', 'Justin Ragsdale'],
+        ['U000EXAMPLE1', 'Justin Ragsdale'],
         ['W0ENTERPRISE', 'Ent User'],
       ]),
     );

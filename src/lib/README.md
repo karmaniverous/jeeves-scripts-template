@@ -12,7 +12,7 @@ Key exports:
 
 - Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`.
 - GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
-- Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH`
+- Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH` (OAuth client; service-account mailboxes are detected by `gog-credentials.ts` under `<GOG_CONFIG_DIR>/data/` first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`)
 - Email: `EMAIL_EVENTS_DIR`
 - Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`
 - X/Twitter: `X_OAUTH_DIR`, `X_ACCOUNTS`
@@ -53,6 +53,16 @@ Google Workspace CLI wrapper with retry. Depends on `GOG_BIN`, `GOG_CONFIG_DIR`.
 
 - `gogWithRetry(args, opts?)` — run `gog` command with retry logic for transient network errors (context deadline exceeded, timeouts). Defaults `GOG_HOME` to `GOG_CONFIG_DIR` (an existing `GOG_HOME` is kept), so gog and the scripts use the same home.
 
+### gog-credentials.ts
+
+Single source of truth for which gog credentials exist. Depends on `GOG_CLIENT_PATH`, `GOG_CONFIG_DIR`.
+
+- `gogServiceAccountDirs(configDir?)` — directories searched for service-account mailboxes, in order: `<configDir>/data` (current gog), then `<configDir>` (older gog without `data/`); `gogServiceAccountDir(configDir?)` is the first
+- `serviceAccountFileName(email)` / `serviceAccountKeyPath(email, configDir?)` — `sa-<base64(email), padding stripped>.json`, and its path under `data/`
+- `findServiceAccountFile(email, configDir?)` — that mailbox's registration in the first directory that has it, or `null`
+- `detectGogCredentials(configDir?)` — `{ oauthClient, serviceAccount, any }`: OAuth client file present, any `sa-*.json` present
+- `requireGogCredentials(job, accountCount, creds?)` — `false` when `accountCount` is 0 (caller skips), `true` when any credential exists, otherwise throws so the run fails
+
 ### gateway-client.ts
 
 Gateway HTTP client for OpenClaw tool invocation. Depends on `GATEWAY_HOST`, `GATEWAY_PORT`.
@@ -76,6 +86,8 @@ Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`.
 - `tryGetRef(key)` — same as `getRef` but returns an empty string instead of throwing when the key is missing
 - `getCalendarAccounts()` — accounts with calendar config
 - `getEmailAccounts()` — email addresses with `emailPolling: true`
+- `getBucketNames()` — every configured bucket name (`buckets.priority` order, then domain-only buckets), deduplicated; bucket names are also Gmail labels
+- `getGmailAccounts()` — gog-served addresses, deduplicated: `emailPolling` accounts without an `imap` block plus `emailConfig.backfill.accounts`
 - `getBucketForDomain(domain)` — match email domain to classification bucket
 - `getBucketPriority()` — bucket name to priority index mapping
 
@@ -161,20 +173,20 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 {
   "accounts": [
     {
-      "email": "user@company.com",
+      "email": "user@example.com",
       "type": "gmail",
       "calendar": { "serviceAccount": "auto" },
       "emailPolling": true
     },
     {
-      "email": "user@imap-provider.com",
+      "email": "user@imap.example.com",
       "type": "imap",
       "emailPolling": true,
       "imap": {
         "host": "imap.provider.com",
         "port": 993,
         "tls": true,
-        "user": "user@imap-provider.com",
+        "user": "user@imap.example.com",
         "password": "..."
       },
       "folders": ["INBOX", "Sent"]
@@ -194,8 +206,8 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
   "emailConfig": {
     "reportOnly": false,
     "receipt": {
-      "forwardJGS": true,
-      "sparkReceiptsForwardTo": "receipts@company.com"
+      "forwardEnabled": true,
+      "sparkReceiptsForwardTo": "receipts@example.com"
     },
     "digest": {
       "slackChannelId": "C0456..."
@@ -210,8 +222,13 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 - `buckets.domains` — Maps email domains to classification buckets. `pattern` is matched case-insensitively.
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).
 - `refs` — Named references to external service IDs accessed via `getRef('dotted.key')`.
-- `emailConfig.reportOnly` — When `true`, email triage logs actions without executing them.
-- `emailConfig.receipt` — Receipt forwarding settings.
+- `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal) and drain-updates applies none.
+- `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@example.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`. Backfill accounts are included in `getGmailAccounts()`, so `email-download` and `email-drain-updates` consume what backfill queues even for accounts that are not polled.
+- `emailConfig.receipt` — Receipt forwarding settings: `forwardEnabled` (boolean, whether detected receipts are forwarded) and `sparkReceiptsForwardTo` (the address they go to). No script in this template reads these yet; they are validated so instance scripts can rely on them.
+- `buckets` — bucket names (from `buckets.priority` and `buckets.domains[].bucket`, see `getBucketNames()`) are also the Gmail labels the classification and backfill scripts apply. No bucket name is hard-coded in code.
+
+**Migration: `emailConfig.receipt.forwardJGS` → `forwardEnabled`.** The old key is still accepted as a deprecated alias: at load time it is mapped to `forwardEnabled` and a one-line warning is logged (`pipeline-config: emailConfig.receipt.forwardJGS is deprecated; rename it to forwardEnabled.`). If both keys are present, `forwardEnabled` wins, the old key is ignored, and the warning says so. Rename the key in your `pipeline-config.json` to silence the warning; the alias will be removed in a future release.
+
 - `emailConfig.digest` — Slack channel for email digest delivery.
 
 ### `silo-routing.json`

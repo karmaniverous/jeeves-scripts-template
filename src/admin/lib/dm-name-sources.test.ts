@@ -69,13 +69,13 @@ describe('gatewayMemberName', () => {
         profile: { real_name: 'Justin Ragsdale', display_name: 'JR' },
       }),
     );
-    expect(await gatewayMemberName('U0B2YNF9MF1', invoke)).toBe(
+    expect(await gatewayMemberName('U000EXAMPLE1', invoke)).toBe(
       'Justin Ragsdale',
     );
     expect(invoke).toHaveBeenCalledWith('message', {
       action: 'member-info',
       channel: 'slack',
-      userId: 'U0B2YNF9MF1',
+      userId: 'U000EXAMPLE1',
     });
     expect(
       await gatewayMemberName('U1', () => member({ name: 'handle' })),
@@ -103,7 +103,7 @@ describe('applyDmNames', () => {
         {
           hour: 'h',
           channels: {
-            'slack:dm:U0B2YNF9MF1': {
+            'slack:dm:U000EXAMPLE1': {
               models: {
                 m: {
                   input: { count: 1, cost: 1 },
@@ -129,7 +129,7 @@ describe('applyDmNames', () => {
       'slack:dm:justin-ragsdale',
     ]);
     expect(readDmNameCache(cachePath)).toEqual({
-      U0B2YNF9MF1: 'Justin Ragsdale',
+      U000EXAMPLE1: 'Justin Ragsdale',
     });
 
     await applyDmNames(buckets(), { cachePath, usersPath, lookup });
@@ -154,7 +154,7 @@ describe('applyDmNames', () => {
       usersPath: path.join(dir, 'u.json'),
     });
     expect(Object.keys(b.get('h')?.channels ?? {})).toEqual([
-      'slack:dm:U0B2YNF9MF1',
+      'slack:dm:U000EXAMPLE1',
     ]);
   });
 });

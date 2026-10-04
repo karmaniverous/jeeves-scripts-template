@@ -1,5 +1,5 @@
 {
-  "_comment": "Seeded on first deploy by jeeves-tools --scope scripts. Edit this file to configure accounts, buckets, and refs. Secrets (IMAP passwords, etc.) must NOT be stored here — use the S3 secrets path and reference them at runtime. See pipeline-config.ts for full schema. emailConfig fields are required: fill in sparkReceiptsForwardTo (email address) and digest.slackChannelId before going live.",
+  "_comment": "Seeded on first deploy by jeeves-tools --scope scripts. Edit this file to configure accounts, buckets, and refs. Secrets (IMAP passwords, etc.) must NOT be stored here — use the S3 secrets path and reference them at runtime. See pipeline-config.ts for full schema. emailConfig fields are required: fill in sparkReceiptsForwardTo (email address) and digest.slackChannelId before going live. Optional emailConfig.backfill { accounts, lookbackDays, windowDays } (all required when present; no defaults) enables the email-backfill-historical job.",
   "accounts": [],
   "buckets": {
     "domains": [],
@@ -9,7 +9,7 @@
   "emailConfig": {
     "reportOnly": false,
     "receipt": {
-      "forwardJGS": false,
+      "forwardEnabled": false,
       "sparkReceiptsForwardTo": ""
     },
     "digest": {

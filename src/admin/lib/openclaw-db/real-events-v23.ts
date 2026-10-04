@@ -14,7 +14,7 @@ export const sessionHeader = (id: string): string =>
     version: 4,
     id,
     timestamp: '2026-09-24T18:13:30.953Z',
-    cwd: 'J:\\jeeves',
+    cwd: '/opt/jeeves/workspace',
   });
 
 /** Plain user message. */
@@ -41,11 +41,11 @@ export const runtimeContext = (senderName: string): string =>
       'Conversation info:',
       '```json',
       JSON.stringify({
-        chat_id: 'user:U0AB7J9RCHF',
+        chat_id: 'user:U000EXAMPLE2',
         message_id: '1790273602.735929',
-        sender: { id: 'U0AB7J9RCHF', name: senderName },
+        sender: { id: 'U000EXAMPLE2', name: senderName },
         timestamp: 'Thu 2026-09-24 18:13:22 UTC',
-        group_space: 'T02QURQKQUQ',
+        group_space: 'T000EXAMPLE1',
         inbound_event_kind: 'user_request',
       }),
       '```',
@@ -87,7 +87,7 @@ export const assistantUsage = (tsIso: string, input = 100): string =>
 
 /** A real-shaped session_nodes.entry_json for a Slack channel session. */
 export const slackChannelEntry = (channelId: string, name: string) => ({
-  displayName: `slack:t0aad79er2b#${name}`,
+  displayName: `slack:t000example2#${name}`,
   chatType: 'channel',
   groupChannel: `#${name}`,
   delivery: {

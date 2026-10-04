@@ -9,6 +9,6 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "calendar",
-    "prerequisite": "Google Calendar OAuth via gog + calendar accounts in pipeline-config.json"
+    "prerequisite": "Google Calendar via gog (OAuth client or service-account mailboxes) + calendar accounts in pipeline-config.json"
   }
 ]

@@ -15,7 +15,7 @@ const toolResult = (payload: unknown) => ({
 
 const READ = toolResult({
   ok: true,
-  channelId: 'C0B2Z734KSP',
+  channelId: 'C000EXAMPLE1',
   messages: [
     { user: 'U2', type: 'message', ts: '1790595302.365459', text: 'newer' },
     {
@@ -102,7 +102,7 @@ describe('gatewaySlackIo', () => {
     const invoke = vi.fn().mockResolvedValue(READ);
     const io = gatewaySlackIo(invoke);
     await expect(
-      io.read('channel:C0B2Z734KSP', {
+      io.read('channel:C000EXAMPLE1', {
         limit: 5,
         threadTs: '1790590000.000100',
       }),
@@ -110,7 +110,7 @@ describe('gatewaySlackIo', () => {
     expect(invoke).toHaveBeenCalledWith('message', {
       action: 'read',
       channel: 'slack',
-      target: 'channel:C0B2Z734KSP',
+      target: 'channel:C000EXAMPLE1',
       limit: 5,
       threadId: '1790590000.000100',
     });
@@ -143,7 +143,7 @@ describe('gatewaySlackIo', () => {
   it('fails a read whose response has no messages array', async () => {
     const invoke = vi.fn().mockResolvedValue(toolResult({ ok: true }));
     await expect(
-      gatewaySlackIo(invoke).read('channel:C0B2Z734KSP'),
+      gatewaySlackIo(invoke).read('channel:C000EXAMPLE1'),
     ).rejects.toThrow(/no `messages` field/);
   });
 
@@ -153,20 +153,20 @@ describe('gatewaySlackIo', () => {
       .mockResolvedValueOnce(toolResult({ ok: true, messages: [] }))
       .mockResolvedValue(toolResult({ ok: true }));
     const io = gatewaySlackIo(invoke, 'vc');
-    await io.read('channel:C0B2Z734KSP');
-    await io.edit('channel:C0B2Z734KSP', '1789.1', 'v2');
+    await io.read('channel:C000EXAMPLE1');
+    await io.edit('channel:C000EXAMPLE1', '1789.1', 'v2');
     expect(invoke).toHaveBeenNthCalledWith(1, 'message', {
       action: 'read',
       channel: 'slack',
       accountId: 'vc',
-      target: 'channel:C0B2Z734KSP',
+      target: 'channel:C000EXAMPLE1',
       limit: 20,
     });
     expect(invoke).toHaveBeenNthCalledWith(2, 'message', {
       action: 'edit',
       channel: 'slack',
       accountId: 'vc',
-      target: 'channel:C0B2Z734KSP',
+      target: 'channel:C000EXAMPLE1',
       messageId: '1789.1',
       message: 'v2',
     });

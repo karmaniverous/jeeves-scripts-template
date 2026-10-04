@@ -27,7 +27,7 @@ const MULTI_SILO_CONFIG = JSON.stringify({
   defaultBasePath: 'C:/content/default',
   silos: {
     acme: {
-      emailDomains: ['acme.com', 'ACME.ORG'],
+      emailDomains: ['acme.example', 'ACME.TEST'],
       githubOrgs: [
         'acme-corp',
         { githubOrg: 'acme-labs', relativePath: 'labs' },
@@ -38,7 +38,7 @@ const MULTI_SILO_CONFIG = JSON.stringify({
       basePath: 'C:/content/acme',
     },
     globex: {
-      emailDomains: ['globex.net'],
+      emailDomains: ['globex.example'],
       githubOrgs: ['globex'],
       slackWorkspaces: ['T222222'],
       basePath: 'C:/content/globex',
@@ -115,18 +115,18 @@ describe('silo-router', () => {
   describe('getBasePathForEmailDomain', () => {
     it('returns silo path for matched domain', () => {
       loadMultiSiloConfig();
-      expect(getBasePathForEmailDomain('acme.com')).toBe('C:/content/acme');
+      expect(getBasePathForEmailDomain('acme.example')).toBe('C:/content/acme');
     });
 
     it('matches case-insensitively', () => {
       loadMultiSiloConfig();
-      expect(getBasePathForEmailDomain('ACME.COM')).toBe('C:/content/acme');
-      expect(getBasePathForEmailDomain('Acme.Org')).toBe('C:/content/acme');
+      expect(getBasePathForEmailDomain('ACME.EXAMPLE')).toBe('C:/content/acme');
+      expect(getBasePathForEmailDomain('Acme.Test')).toBe('C:/content/acme');
     });
 
     it('returns default for unrecognized domain', () => {
       loadMultiSiloConfig();
-      expect(getBasePathForEmailDomain('unknown.com')).toBe(
+      expect(getBasePathForEmailDomain('unknown.example')).toBe(
         'C:/content/default',
       );
     });
@@ -174,19 +174,19 @@ describe('silo-router', () => {
   describe('getBasePathForMeeting', () => {
     it('routes to silo with majority of participants', () => {
       loadMultiSiloConfig();
-      const emails = ['a@acme.com', 'b@acme.com', 'c@globex.net'];
+      const emails = ['a@acme.example', 'b@acme.example', 'c@globex.example'];
       expect(getBasePathForMeeting(emails)).toBe('C:/content/acme');
     });
 
     it('returns default when tied', () => {
       loadMultiSiloConfig();
-      const emails = ['a@acme.com', 'b@globex.net'];
+      const emails = ['a@acme.example', 'b@globex.example'];
       expect(getBasePathForMeeting(emails)).toBe('C:/content/default');
     });
 
     it('returns default when no participants match any silo', () => {
       loadMultiSiloConfig();
-      const emails = ['x@random.io', 'y@other.org'];
+      const emails = ['x@random.example', 'y@other.example'];
       expect(getBasePathForMeeting(emails)).toBe('C:/content/default');
     });
 
@@ -217,15 +217,15 @@ describe('silo-router', () => {
   describe('getEmailBaseForAccount', () => {
     it('routes to silo email path for known domain', () => {
       loadMultiSiloConfig();
-      expect(getEmailBaseForAccount('user@acme.com').replace(/\\/g, '/')).toBe(
-        'C:/content/acme/email',
-      );
+      expect(
+        getEmailBaseForAccount('user@acme.example').replace(/\\/g, '/'),
+      ).toBe('C:/content/acme/email');
     });
 
     it('returns default email path for unknown domain', () => {
       loadMultiSiloConfig();
       expect(
-        getEmailBaseForAccount('user@unknown.io').replace(/\\/g, '/'),
+        getEmailBaseForAccount('user@unknown.example').replace(/\\/g, '/'),
       ).toBe('C:/content/default/email');
     });
 
@@ -241,14 +241,14 @@ describe('silo-router', () => {
     it('routes to silo calendar path for known domain', () => {
       loadMultiSiloConfig();
       expect(
-        getCalendarBaseForAccount('user@globex.net').replace(/\\/g, '/'),
+        getCalendarBaseForAccount('user@globex.example').replace(/\\/g, '/'),
       ).toBe('C:/content/globex/calendar');
     });
 
     it('returns default calendar path for unknown domain', () => {
       loadMultiSiloConfig();
       expect(
-        getCalendarBaseForAccount('user@other.org').replace(/\\/g, '/'),
+        getCalendarBaseForAccount('user@other.example').replace(/\\/g, '/'),
       ).toBe('C:/content/default/calendar');
     });
   });

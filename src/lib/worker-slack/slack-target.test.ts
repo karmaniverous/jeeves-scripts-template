@@ -4,14 +4,14 @@ import { normalizeSlackTarget, requireSlackTarget } from './slack-target.js';
 
 describe('normalizeSlackTarget', () => {
   it.each([
-    ['C0B2Z734KSP', 'channel:C0B2Z734KSP'],
-    ['c0b2z734ksp', 'channel:C0B2Z734KSP'],
+    ['C000EXAMPLE1', 'channel:C000EXAMPLE1'],
+    ['c000example1', 'channel:C000EXAMPLE1'],
     ['G0ABCDEF12', 'channel:G0ABCDEF12'],
-    ['D0AMFV5SGN8', 'channel:D0AMFV5SGN8'],
-    ['U09JC3DPCS1', 'user:U09JC3DPCS1'],
+    ['D000EXAMPLE1', 'channel:D000EXAMPLE1'],
+    ['U000EXAMPLE3', 'user:U000EXAMPLE3'],
     ['W0ABCDEF12', 'user:W0ABCDEF12'],
-    ['channel:C0B2Z734KSP', 'channel:C0B2Z734KSP'],
-    [' user:u09jc3dpcs1 ', 'user:U09JC3DPCS1'],
+    ['channel:C000EXAMPLE1', 'channel:C000EXAMPLE1'],
+    [' user:u000example3 ', 'user:U000EXAMPLE3'],
   ])('%j → %j', (raw, target) => {
     expect(normalizeSlackTarget(raw)).toBe(target);
   });
@@ -22,10 +22,10 @@ describe('normalizeSlackTarget', () => {
     '',
     'C1',
     'email:x@y.z',
-    'channel:U09JC3DPCS1',
+    'channel:U000EXAMPLE3',
     'channel:W0ABCDEF12',
-    'user:C0B2Z734KSP',
-    'user:D0AMFV5SGN8',
+    'user:C000EXAMPLE1',
+    'user:D000EXAMPLE1',
     'channel:C1',
   ])('rejects %j', (raw) => {
     expect(normalizeSlackTarget(raw)).toBeNull();
@@ -35,7 +35,7 @@ describe('normalizeSlackTarget', () => {
     expect(() => requireSlackTarget('#ops-ceo')).toThrow(
       /Invalid Slack target/,
     );
-    expect(() => requireSlackTarget('user:C0B2Z734KSP')).toThrow(
+    expect(() => requireSlackTarget('user:C000EXAMPLE1')).toThrow(
       /Invalid Slack target/,
     );
   });

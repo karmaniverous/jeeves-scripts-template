@@ -139,5 +139,6 @@ export const X_OAUTH_DIR = path.join(CREDENTIALS_DIR, 'oauth');
 /**
  * Per-account X content directories. Keys are account handles, values
  * are the directory where that account's X pipeline output is written.
+ * The X poll jobs and drain-queues cover every handle listed here.
  */
 export const X_ACCOUNTS: Record<string, string> = {};

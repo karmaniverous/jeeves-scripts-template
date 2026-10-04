@@ -9,7 +9,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   },
   {
     "id": "x-poll-mentions",
@@ -21,7 +21,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   },
   {
     "id": "x-poll-feed",
@@ -33,7 +33,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   },
   {
     "id": "x-poll-likes",
@@ -45,7 +45,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   },
   {
     "id": "x-poll-bookmarks",
@@ -57,7 +57,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   },
   {
     "id": "x-drain-queues",
@@ -69,6 +69,6 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "x",
-    "prerequisite": "Per-account OAuth JSON files in X_OAUTH_DIR (see refresh-token.ts and x/README.md)"
+    "prerequisite": "X_ACCOUNTS (src/lib/constants/integrations.ts) lists the handles, each with its OAuth JSON file x-<handle>-oauth2.json in X_OAUTH_DIR. With no args the job covers every X_ACCOUNTS handle (see x/README.md)"
   }
 ]

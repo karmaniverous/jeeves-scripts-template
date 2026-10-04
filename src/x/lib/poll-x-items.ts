@@ -6,6 +6,9 @@
  * Called by each poll-* entry-point script with a specific API poll function
  * and queue prefix. Fetches items through x-api, then enqueues them into the
  * jeeves-runner queue for downstream processing by drain-queues.
+ *
+ * With no handle argument every handle in `X_ACCOUNTS` is polled (see
+ * poll-handles.ts); `<handle>` narrows the run to one handle.
  */
 
 import fs from 'node:fs';
@@ -15,6 +18,8 @@ import type { RunnerClient } from '@karmaniverous/jeeves-runner';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 import type { Client } from '@xdevplatform/xdk';
 
+import { X_ACCOUNTS } from '../../lib/constants.js';
+import { logPollHandles, resolvePollHandles } from './poll-handles.js';
 import type { PollOptions, XTweet } from './x-api.js';
 import { getOAuthPath, withAutoRefresh } from './x-api.js';
 
@@ -95,30 +100,27 @@ export async function pollXItems(
 }
 
 /**
- * Entry-point wrapper for X poll scripts. Handles handle parsing,
- * credential check, error handling, and runScript boilerplate.
+ * Handles this run polls: the first CLI argument if given, else every
+ * handle in `X_ACCOUNTS`; only handles with an OAuth file. Logs a
+ * `[skip]` line for each handle left out.
+ */
+export function pollHandlesFromArgv(): string[] {
+  return logPollHandles(
+    resolvePollHandles(process.argv[2], X_ACCOUNTS, (h) =>
+      fs.existsSync(getOAuthPath(h)),
+    ),
+  );
+}
+
+/**
+ * Entry-point wrapper for X poll scripts: resolves the handles
+ * ({@link pollHandlesFromArgv}) and polls each in turn. An API error for
+ * one handle is logged and the next handle is still polled; any other
+ * error fails the run (runScript exits 1).
  */
 export function runXPoller(scriptName: string, options: PollXOptions): void {
-  runScript(scriptName, () => {
-    const handle = process.argv[2];
-    if (!handle) {
-      console.log(
-        `[skip] No X account handle provided. Usage: tsx ${scriptName} <handle>`,
-      );
-      return;
-    }
-
-    if (!fs.existsSync(getOAuthPath(handle))) {
-      console.log('[skip] X OAuth2 credentials not configured');
-      return;
-    }
-
-    pollXItems(handle, options).catch((err: unknown) => {
-      console.error(
-        `${scriptName}: FATAL`,
-        err instanceof Error ? err.message : String(err),
-      );
-      process.exit(1);
-    });
+  runScript(scriptName, async () => {
+    for (const handle of pollHandlesFromArgv())
+      await pollXItems(handle, options);
   });
 }

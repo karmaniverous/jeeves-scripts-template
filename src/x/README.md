@@ -6,11 +6,11 @@ Polls, posts, and engages on X/Twitter via API v2. Supports multiple accounts wi
 
 | Script | Description |
 | --- | --- |
-| `poll-posts.ts` | Poll an account's own posts via X API v2 (Owned Read) |
-| `poll-mentions.ts` | Poll mentions for an account |
+| `poll-posts.ts` | Poll each account's own posts via X API v2 (Owned Read) |
+| `poll-mentions.ts` | Poll mentions for each account |
 | `poll-feed.ts` | Poll the home timeline — writes directly to feed/ directory |
-| `poll-likes.ts` | Poll liked tweets for an account |
-| `poll-bookmarks.ts` | Poll bookmarks for an account |
+| `poll-likes.ts` | Poll liked tweets for each account |
+| `poll-bookmarks.ts` | Poll bookmarks for each account |
 | `drain-queues.ts` | Drain all X runner queues to disk as JSON files |
 | `post.ts` | Dispatch queued posts, replies, and quotes |
 | `like.ts` | Process the like queue |
@@ -55,12 +55,20 @@ flowchart TD
 | `x-poll-bookmarks` | `poll-bookmarks.ts` | Every 13 min |
 | `x-drain-queues`   | `drain-queues.ts`   | Every 11 min |
 
-All entries in `jobs/x.json` carry a non-null `prerequisite` (the OAuth files). `post.ts`, `like.ts`, `repost.ts` and `refresh-token.ts` are not in the manifest.
+All entries in `jobs/x.json` carry a non-null `prerequisite` (`X_ACCOUNTS` plus each handle's OAuth file). `post.ts`, `like.ts`, `repost.ts` and `refresh-token.ts` are not in the manifest.
 
-**Every script except `drain-queues` takes the account handle as its first argument** (`tsx src/x/poll-posts.ts <handle>`); without one it logs `[skip]` and exits 0, as it does when the handle's OAuth file is missing. The manifest entries pass no handle, so register the poll jobs per handle with `args: ["<handle>"]` (and a per-handle job id). `drain-queues` iterates over every handle in `X_ACCOUNTS`.
+**Handles come from `X_ACCOUNTS`, the one list of the instance's X accounts.** The manifest entries pass no arguments, so as registered:
+
+- each poll script (`poll-posts`, `poll-mentions`, `poll-feed`, `poll-likes`, `poll-bookmarks`) polls every handle in `X_ACCOUNTS`, one after another (`lib/poll-handles.ts`). A handle argument (`tsx src/x/poll-posts.ts <handle>`) narrows a run to that handle.
+- a handle is polled only if it is in `X_ACCOUNTS` (otherwise `drain-queues` would never drain its items) and its OAuth file exists; any other handle is logged as `[skip] @<handle>: <reason>`. With `X_ACCOUNTS` empty (the template default) the job logs `[skip]` and exits 0.
+- an API error for one handle is logged and the next handle is still polled. `poll-feed` then fails the run; the queue pollers log the error and exit 0.
+- `drain-queues` iterates over every handle in `X_ACCOUNTS`.
+
+`post.ts`, `like.ts`, `repost.ts` and `refresh-token.ts` act on one account and take its handle as their first argument; without one they log `[skip]` and exit 0.
 
 ## Key Dependencies
 
+- `src/x/lib/poll-handles.ts` — which handles a poll run covers (`X_ACCOUNTS`, or the handle argument)
 - `src/x/lib/` — X API client wrappers, OAuth token management, polling helpers
 - `src/lib/constants.ts` — `X_ACCOUNTS`, `X_OAUTH_DIR`
 - `src/lib/pipeline-config.ts` — additional X config references

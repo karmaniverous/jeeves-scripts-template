@@ -10,12 +10,14 @@ Shared infrastructure consumed by all domain scripts. This is where instance con
 
 Key exports:
 
-- Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`.
-- GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
+- Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`. Pipeline output written anywhere else is not indexed by the watcher or visible in jeeves-server. The template ships `/opt/jeeves/content`; repos created from an older template that used `/opt/jeeves/openclaw/content`, and instances whose config sets a different `contentDir`, must set `CONTENT_DIR` to their content root and commit it.
+- Instance (`constants/instance.ts`): `INSTANCE_NAME`, `PIPELINE_CONFIG_PATH` (`<SCRIPTS_DIR>/pipeline-config.json`), `SILO_ROUTING_CONFIG_PATH` (`<CONFIG_DIR>/silo-routing.json`), `QDRANT_API_URL`, `QDRANT_SERVICE_NAME`
+- GitHub: `GH_BIN`, `GH_CONFIG_DIR` (`<CONFIG_DIR>/gh-cli`), `GH_ACCOUNT`, `GH_BOT_USER` (both empty in the template; set per instance), `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH` (OAuth client; service-account mailboxes are detected by `gog-credentials.ts` under `<GOG_CONFIG_DIR>/data/` first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`)
 - Email: `EMAIL_EVENTS_DIR`
 - Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`
-- X/Twitter: `X_OAUTH_DIR`, `X_ACCOUNTS`
+- X/Twitter: `X_OAUTH_DIR` (`<CREDENTIALS_DIR>/oauth`), `X_ACCOUNTS` (map of account handle → that account's output directory; empty in the template)
+- Notion: `NOTION_VERSION`, `NOTION_API_KEY_PATH`
 - Meetings: `DEFAULT_MEETINGS_DIR`
 - Gateway: `GATEWAY_HOST`, `GATEWAY_PORT`, `SPAWN_WORKER_PATH`
 - Token metrics: `TOKEN_METRICS_DIR`, `TOKEN_RATES_PATH`, `SESSION_REFRESH_*` thresholds
@@ -29,6 +31,12 @@ Thin wrappers around date-fns. No config dependencies.
 - `formatDate(dateStr, fmt)` — format a date using date-fns pattern
 - `relativeDays(dateStr, referenceStr?)` — human-friendly relative description ("3 days ago", "today")
 - Re-exports `format` and `parseISO` from date-fns
+
+From a shell, run it with `tsx` from the repo root (the repo is TypeScript source with no compiled `.js`, so plain `node -e` importing `./src/lib/dates.js` fails with `ERR_MODULE_NOT_FOUND`):
+
+```bash
+tsx -e "import { dayOfWeek } from './src/lib/dates.ts'; console.log(dayOfWeek('2026-06-01'));"
+```
 
 ### email.ts
 
@@ -163,7 +171,7 @@ Two JSON configuration files control pipeline behavior. Both paths are set via c
 
 ### `pipeline-config.json`
 
-Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts`.
+Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts` (`<SCRIPTS_DIR>/pipeline-config.json`, the repo root). The repo ships `pipeline-config.json.template` as a starting point. `pipeline-config.json` itself is untracked but **not** gitignored, so `git add -A` would commit it (and any IMAP password in it): never commit it.
 
 Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-bucket routing, external service refs, and email behavior.
 
@@ -218,7 +226,8 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 
 **Fields:**
 
-- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. IMAP accounts require an `imap` connection block; `folders` is optional (defaults to all folders for IMAP, standard Gmail folders for gmail).
+- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. `type: "imap"` requires an `imap` connection block; any account with an `imap` block is polled over IMAP (a `gmail` one with Gmail extensions), the rest through gog. `folders` is optional (IMAP only): without it, `gmail` accounts poll `[Gmail]/All Mail`, `[Gmail]/Spam` and `[Gmail]/Trash`, generic IMAP accounts every folder the server lists. `imap.password` is read literally (no secret references), so never commit this file. See [email/](../email/README.md#account-configuration).
+- `accounts[].calendar` — Either `{ "serviceAccount": "auto" }` (Workspace mailbox via the service-account registration gog keeps for it) or `{ "tokenFile": "<path relative to CREDENTIALS_DIR>" }` (OAuth refresh token; needs the gog OAuth client). See [calendar/](../calendar/README.md#account-configuration).
 - `buckets.domains` — Maps email domains to classification buckets. `pattern` is matched case-insensitively.
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).
 - `refs` — Named references to external service IDs accessed via `getRef('dotted.key')`.

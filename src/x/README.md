@@ -27,19 +27,37 @@ flowchart TD
   end
 
   subgraph Publish
-    action["post / like / repost"] --> dequeue["dequeue from\nrunner queues"]
+    action["like / repost"] --> dequeue["dequeue from\nrunner queues"]
     dequeue --> api["call X API v2\nendpoints"]
+    post["post"] --> files["read queue/*.json\n(account dir)"]
+    files --> api
     api --> refresh["auto-refresh\ntoken on 401"]
   end
 ```
 
 `poll-feed` is the exception — it writes feed items directly to the account's `feed/` directory instead of using the queue pattern.
 
+- Ingest queues are named `x-<type>-<handle>` (`x-posts-`, `x-mentions-`, `x-feed-`, `x-likes-`, `x-bookmarks-`); `drain-queues` writes each item to `<X_ACCOUNTS[handle]>/<type>/<id>.json`. `like.ts` and `repost.ts` dequeue from the runner queues `x-like-<handle>` and `x-repost-<handle>`. `post.ts` does not use a runner queue: it reads JSON files (`{ text, type?, targetTime?, replyToId?, quoteId? }`) from `<account dir>/queue/`, posts those whose `targetTime` has passed, and moves each to `queue/done/` or, after 3 failed attempts, `queue/failed/`.
+
 ## Prerequisites
 
-- Per-account OAuth 2.0 PKCE credentials: JSON files under `X_OAUTH_DIR` (from `constants.ts`), named `x-{handle}-oauth2.json`, each containing `clientId`, `clientSecret`, `access_token`, and `refresh_token`
-- OAuth 2.0 PKCE tokens per account (generated via initial auth flow, refreshed by `refresh-token.ts`)
-- Account handles configured in `X_ACCOUNTS` in `constants.ts`
+- `X_ACCOUNTS` in `constants.ts` (`src/lib/constants/integrations.ts`): a map of account handle → that account's output directory. Empty in the template.
+- Per-account OAuth 2.0 PKCE credentials: one JSON file per handle under `X_OAUTH_DIR` (`{CREDENTIALS_DIR}/oauth`, i.e. `/opt/jeeves/config/credentials/oauth`), named `x-{handle}-oauth2.json`, containing `clientId`, `clientSecret`, `access_token` and `refresh_token`. These are secrets: keep them in that directory, never in the repo. Tokens come from the initial auth flow and are refreshed by `refresh-token.ts` (and automatically on a 401).
+
+## Runner Jobs
+
+| Job                | Script              | Schedule     |
+| ------------------ | ------------------- | ------------ |
+| `x-poll-posts`     | `poll-posts.ts`     | Every 17 min |
+| `x-poll-mentions`  | `poll-mentions.ts`  | Every 19 min |
+| `x-poll-feed`      | `poll-feed.ts`      | Every 23 min |
+| `x-poll-likes`     | `poll-likes.ts`     | Every 29 min |
+| `x-poll-bookmarks` | `poll-bookmarks.ts` | Every 13 min |
+| `x-drain-queues`   | `drain-queues.ts`   | Every 11 min |
+
+All entries in `jobs/x.json` carry a non-null `prerequisite` (the OAuth files). `post.ts`, `like.ts`, `repost.ts` and `refresh-token.ts` are not in the manifest.
+
+**Every script except `drain-queues` takes the account handle as its first argument** (`tsx src/x/poll-posts.ts <handle>`); without one it logs `[skip]` and exits 0, as it does when the handle's OAuth file is missing. The manifest entries pass no handle, so register the poll jobs per handle with `args: ["<handle>"]` (and a per-handle job id). `drain-queues` iterates over every handle in `X_ACCOUNTS`.
 
 ## Key Dependencies
 

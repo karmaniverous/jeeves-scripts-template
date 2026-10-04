@@ -20,8 +20,12 @@
  *   collector has already counted (OpenClaw seq <= stored cursor, Claude
  *   Code bytes before the stored offset); all cursors untouched.
  * `--dry-run` scans and reports without writing anything.
- * `--from` earlier than OPENCLAW_UPGRADE_CUTOFF is refused (pre-upgrade
- * history is never rewritten) unless `--allow-pre-upgrade` is given.
+ * Live runs (including `--dry-run`) need the OPENCLAW_UPGRADE_CUTOFF
+ * environment variable (this instance's OpenClaw 2026.9 upgrade hour; no
+ * default) and refuse when it is unset or invalid. A live `--from` earlier
+ * than it is refused (pre-upgrade history is never rewritten) unless
+ * `--allow-pre-upgrade` is given. Scratch (`--out`) runs never touch the
+ * live store, so they ignore the cutoff and need no flag.
  * Slack DMs recorded only by user id are named via the DM-name cache, the
  * Slack user map, then the gateway (lib/dm-name-sources.ts).
  * node:sqlite is loaded lazily (only when the agent DB is scanned).

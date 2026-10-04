@@ -85,3 +85,21 @@ describe('gog home', () => {
     expect(isUnder(c.GOG_CLIENT_PATH, '/srv/gog')).toBe(true);
   });
 });
+
+describe('OpenClaw upgrade cutoff', () => {
+  it.each([undefined, ''])(
+    'has no default when the env var is %j',
+    async (v) => {
+      vi.stubEnv('OPENCLAW_UPGRADE_CUTOFF', v);
+      const c = await loadConstants();
+      expect(c.OPENCLAW_UPGRADE_CUTOFF).toBeUndefined();
+    },
+  );
+
+  it('reads OPENCLAW_UPGRADE_CUTOFF as given', async () => {
+    vi.stubEnv('OPENCLAW_UPGRADE_CUTOFF', '2030-01-02T03:00:00Z');
+    const c = await loadConstants();
+    expect(c.OPENCLAW_UPGRADE_CUTOFF_ENV).toBe('OPENCLAW_UPGRADE_CUTOFF');
+    expect(c.OPENCLAW_UPGRADE_CUTOFF).toBe('2030-01-02T03:00:00Z');
+  });
+});

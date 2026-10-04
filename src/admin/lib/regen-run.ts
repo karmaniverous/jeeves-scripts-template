@@ -14,6 +14,10 @@
  * `dryRun` scans and reports without writing buckets, backups, the
  * DM-name cache or runner state. A backup failure throws before any
  * bucket is deleted.
+ *
+ * Live runs (dry or not) need the instance's upgrade cutoff and refuse a
+ * pre-cutoff `from` unless `allowPreUpgrade` (regen-guard.ts). Scratch runs
+ * cannot rewrite history, so they neither need the cutoff nor check it.
  */
 
 import {
@@ -46,7 +50,8 @@ export interface RegenDeps {
   agentDbPath: string;
   agentDbExists: boolean;
   cutoffMs: number;
-  upgradeCutoff: string;
+  /** OPENCLAW_UPGRADE_CUTOFF (ISO 8601), undefined when unset. */
+  upgradeCutoff: string | undefined;
   scanOpenClaw: (
     cursors: DbCursorState,
     options: DbScanOptions,
@@ -228,12 +233,14 @@ export async function runRegen(
     : deps.cutoffMs;
   if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs)
     return fail('Invalid or empty range.');
-  const refused = checkRegenFrom(
-    fromMs,
-    deps.upgradeCutoff,
-    args.allowPreUpgrade,
-  );
-  if (refused) return fail(refused);
+  if (!args.out) {
+    const refused = checkRegenFrom(
+      fromMs,
+      deps.upgradeCutoff,
+      args.allowPreUpgrade,
+    );
+    if (refused) return fail(refused);
+  }
 
   const hours = enumHours(fromMs, toMs - 1);
   console.log(

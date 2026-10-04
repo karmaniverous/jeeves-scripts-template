@@ -38,7 +38,7 @@ function harness(stored: Record<string, string> = {}) {
     agentDbPath: '/db',
     agentDbExists: true,
     cutoffMs: CUTOFF,
-    upgradeCutoff: FROM,
+    upgradeCutoff: FROM as string | undefined,
     scanOpenClaw: vi.fn(
       (
         cursors: Record<string, unknown>,
@@ -235,7 +235,34 @@ describe('runRegen (live)', () => {
       1,
     );
     expect(h.deps.scanOpenClaw).not.toHaveBeenCalled();
+
+    expect(
+      await runRegen(
+        args({ from: '2026-09-20T00:00:00Z', allowPreUpgrade: true }),
+        h.deps,
+      ),
+    ).toBe(0);
+    expect(h.deps.scanOpenClaw).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ['unset', undefined],
+    ['invalid', 'not-a-date'],
+  ])(
+    'refuses when OPENCLAW_UPGRADE_CUTOFF is %s, even dry or with --allow-pre-upgrade',
+    async (_label, cutoff) => {
+      const h = harness();
+      h.deps.upgradeCutoff = cutoff;
+      for (const over of [{}, { dryRun: true }, { allowPreUpgrade: true }]) {
+        expect(await runRegen(args(over), h.deps)).toBe(1);
+      }
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringMatching(/OPENCLAW_UPGRADE_CUTOFF/),
+      );
+      expect(h.deps.openState).not.toHaveBeenCalled();
+      expect(h.deps.scanOpenClaw).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('runRegen (scratch)', () => {
@@ -251,6 +278,26 @@ describe('runRegen (scratch)', () => {
     expect(h.deps.openState).not.toHaveBeenCalled();
     expect(h.deps.scanOpenClaw.mock.calls[0][1].countedOnly).toBe(false);
   });
+
+  it.each([
+    ['unset', undefined],
+    ['invalid', 'not-a-date'],
+    ['later than --from', '2026-09-27T00:00:00Z'],
+  ])(
+    'ignores the upgrade cutoff when it is %s (no --allow-pre-upgrade needed)',
+    async (_label, cutoff) => {
+      const h = harness();
+      h.deps.upgradeCutoff = cutoff;
+      expect(
+        await runRegen(
+          args({ from: '2026-09-20T00:00:00Z', out: '/scratch' }),
+          h.deps,
+        ),
+      ).toBe(0);
+      expect(h.log.at(-1)).toBe('flush:/scratch');
+      expect(h.deps.openState).not.toHaveBeenCalled();
+    },
+  );
 
   it('refuses a scratch dir that already holds buckets in range', async () => {
     const h = harness();

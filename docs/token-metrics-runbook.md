@@ -92,27 +92,35 @@ When `~/.openclaw/agents/main/agent/openclaw-agent.sqlite` exists, the collector
 ### Regenerate
 
 ```bash
+# this instance's OpenClaw 2026.9 upgrade hour (required for live runs; no default)
+export OPENCLAW_UPGRADE_CUTOFF=<YYYY-MM-DDTHH:00:00Z>
 # scratch (never touches runner state or the live store; point TOKEN_METRICS_DIR at a dir holding a copied token-rates.json)
-tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --out /tmp/regen
+tsx src/admin/regenerate-token-metrics.ts --from <ISO hour> --out /tmp/regen
 # live: rebuild [from, last closed hour), back up + replace buckets, REPLACE the DB cursor (bootstrap / full rebuild)
-tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z --dry-run
-tsx src/admin/regenerate-token-metrics.ts --from 2026-09-24T09:00:00Z
+tsx src/admin/regenerate-token-metrics.ts --from "$OPENCLAW_UPGRADE_CUTOFF" --dry-run
+tsx src/admin/regenerate-token-metrics.ts --from "$OPENCLAW_UPGRADE_CUTOFF"
 # live: rebuild a closed range from already-counted events (OpenClaw seq <= DB cursor,
 # Claude Code bytes before the CC cursor); DB and CC cursors untouched
-tsx src/admin/regenerate-token-metrics.ts --from 2026-09-25T00:00:00Z --to 2026-09-26T00:00:00Z
+tsx src/admin/regenerate-token-metrics.ts --from <ISO hour> --to <ISO hour>
 ```
 
 Pause the `collect-token-metrics` job while a live regeneration runs.
 
-`--from` earlier than `OPENCLAW_UPGRADE_CUTOFF` (`src/lib/constants/token-metrics.ts`, default `2026-09-24T09:00:00Z`; set it per instance or override it with the env var) is **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. Pass `--allow-pre-upgrade` only for an owner-approved scratch comparison (step 3 below).
+`OPENCLAW_UPGRADE_CUTOFF` is a per-instance environment variable with **no default**: the first UTC hour this instance ran OpenClaw 2026.9+ (ISO 8601). An instance that never ran an earlier OpenClaw uses its first hour of usage. It is read only by live regenerations (including `--dry-run`):
+
+- Unset or not a date: the run is **refused** with a message naming the variable, even with `--allow-pre-upgrade`.
+- `--from` earlier than it: **refused**, because pre-upgrade hours were counted by the JSONL collector and are never rewritten. `--allow-pre-upgrade` overrides this check only; use it only with owner approval.
+- Scratch runs (`--out`) cannot rewrite history, so they ignore the cutoff entirely: no variable and no `--allow-pre-upgrade` are needed to scan pre-upgrade hours into a scratch directory.
+
+The hourly collector and the reports never read it.
 
 ### Switching a host to the DB reader
 
 This is only for hosts **upgraded** to 2026.9 that already have token-metrics history. A fresh instance starts its DB cursor automatically (above).
 
 1. Find the 2026.9 upgrade time: the OpenClaw package install time, `schema_meta.updated_at` for `meta_key = 'primary'`, or `openclaw.json.pre-*` backups.
-2. Pick `--from` = the upgrade hour (floor to the hour), and set `OPENCLAW_UPGRADE_CUTOFF` to it. The JSONL collector wrote every bucket before that hour.
-3. Run a scratch regeneration (`--out`, `--allow-pre-upgrade`) from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
+2. Pick `--from` = the upgrade hour (floor to the hour), and set the `OPENCLAW_UPGRADE_CUTOFF` environment variable to it. The JSONL collector wrote every bucket before that hour.
+3. Run a scratch regeneration (`--out`) from a few days before the upgrade, and compare pre-upgrade days with the live store by day × channel × model. OpenClaw deletes transcripts, and the JSONL collector dropped open-hour usage, so pre-upgrade days can legitimately differ. Understand every difference before continuing.
 4. Dry-run, then run the live regeneration from the upgrade hour. This bootstraps the cursor.
 
 ### Future schema changes (upgrade runbook step)

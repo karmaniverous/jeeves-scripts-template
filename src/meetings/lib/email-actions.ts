@@ -3,7 +3,8 @@
  *
  * Gmail actions for a thread that meetings/extract.ts has just turned
  * into a new meeting package: add the `meeting` label and, if the
- * message is in the inbox, archive it.
+ * message is in the inbox and not `watch`ed, archive it. A `watch` label
+ * means a human moved the message back to the inbox, so it stays there.
  *
  * The actions are enqueued through `enqueueEmailUpdates` (label-actions),
  * the single `emailConfig.reportOnly` gate for `email-updates` writes.
@@ -28,7 +29,10 @@ export interface MeetingMessageRef {
   labels: string[];
 }
 
-/** Actions for a new meeting: `meeting` label, plus archive if in INBOX. */
+/**
+ * Actions for a new meeting: the `meeting` label, plus an archive when the
+ * message is in `INBOX` and has no `watch` label.
+ */
 export function meetingEmailActions(
   ref: MeetingMessageRef,
 ): EmailUpdateAction[] {
@@ -46,7 +50,7 @@ export function meetingEmailActions(
       reason: 'Meeting package created from this message',
     },
   ];
-  if (ref.labels.includes('INBOX'))
+  if (ref.labels.includes('INBOX') && !ref.labels.includes('watch'))
     actions.push({
       ...base,
       action: 'archive',

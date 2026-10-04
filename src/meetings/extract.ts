@@ -10,8 +10,10 @@
  * participants and Gemini doc links, and writes per-meeting package directories.
  *
  * For each new meeting it enqueues the `meeting` label (and an archive when
- * the message is in the inbox) on `email-updates` through label-actions, so
- * nothing is enqueued when `emailConfig.reportOnly` is true.
+ * the message is in the inbox and not `watch`ed) on `email-updates` through
+ * label-actions, so nothing is enqueued when `emailConfig.reportOnly` is
+ * true. Those actions are dropped, not deferred: the thread is still marked
+ * processed, so they are not enqueued after reportOnly is turned off.
  */
 
 import fs from 'node:fs';
@@ -323,7 +325,7 @@ function main(): void {
           );
           added++;
 
-          // `meeting` label (+ archive if in inbox), gated on reportOnly
+          // `meeting` label (+ archive if in inbox, not watched), gated on reportOnly
           queued += enqueueMeetingEmailActions(client, c, reportOnly);
         } else {
           skipped++;

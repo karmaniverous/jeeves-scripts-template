@@ -47,6 +47,12 @@ describe('meetingEmailActions', () => {
       'archive',
     ]);
   });
+
+  it('never archives a watched inbox message', () => {
+    expect(
+      meetingEmailActions(ref(['INBOX', 'watch'])).map((a) => a.action),
+    ).toEqual(['addLabel']);
+  });
 });
 
 describe('enqueueMeetingEmailActions', () => {

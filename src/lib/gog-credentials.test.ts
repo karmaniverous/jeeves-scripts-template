@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GOG_CLIENT_PATH } from './constants.js';
 import {
   detectGogCredentials,
   findServiceAccountFile,
@@ -149,5 +150,23 @@ describe('requireGogCredentials', () => {
       /email\/poll: 2 Google account\(s\) configured but no gog credentials/,
     );
     expect(() => requireGogCredentials('email/poll', 2, none)).toThrow(/ or /);
+  });
+});
+
+describe('detectGogCredentials with the default config dir', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('checks GOG_CLIENT_PATH for the OAuth client', () => {
+    const exists = vi
+      .spyOn(fs, 'existsSync')
+      .mockImplementation((p) => p === GOG_CLIENT_PATH);
+    expect(detectGogCredentials()).toEqual({
+      oauthClient: true,
+      serviceAccount: false,
+      any: true,
+    });
+    expect(exists).toHaveBeenCalledWith(GOG_CLIENT_PATH);
   });
 });

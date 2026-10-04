@@ -32,7 +32,13 @@ import {
   loadPipelineConfig,
 } from '../../lib/pipeline-config.js';
 import { loadCache, saveCache } from '../email-cache.js';
-import { EMAIL_UPDATES_QUEUE, planDrain } from './label-actions.js';
+import {
+  EMAIL_UPDATES_QUEUE,
+  type LabelChanges,
+  labelChangesFor,
+  planDrain,
+  threadModifyArgs,
+} from './label-actions.js';
 
 const MAX_CALLS_PER_MINUTE = 60;
 
@@ -45,85 +51,13 @@ interface UpdateEntry {
   source: string;
 }
 
-function applyLabelUpdate(entry: UpdateEntry): {
-  addLabels: string[];
-  removeLabels: string[];
-} {
-  const { account, action, label } = entry;
-  const tid = entry.threadId;
-
-  if (action === 'addLabel' && label) {
-    gogWithRetry(
-      ['gmail', 'thread', 'modify', tid, '--add', label, '--account', account],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [label], removeLabels: [] };
-  }
-  if (action === 'removeLabel' && label) {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        label,
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: [label] };
-  }
-  if (action === 'archive') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        'INBOX',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: ['INBOX'] };
-  }
-  if (action === 'trash') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--add',
-        'TRASH',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: ['TRASH'], removeLabels: [] };
-  }
-  if (action === 'markRead') {
-    gogWithRetry(
-      [
-        'gmail',
-        'thread',
-        'modify',
-        tid,
-        '--remove',
-        'UNREAD',
-        '--account',
-        account,
-      ],
-      { retries: 1, backoffMs: 3000 },
-    );
-    return { addLabels: [], removeLabels: ['UNREAD'] };
-  }
-  throw new Error(`Unknown action: ${action}`);
+function applyLabelUpdate(entry: UpdateEntry): LabelChanges {
+  const changes = labelChangesFor(entry.action, entry.label);
+  gogWithRetry(threadModifyArgs(entry.account, entry.threadId, changes), {
+    retries: 1,
+    backoffMs: 3000,
+  });
+  return changes;
 }
 
 function processEntry(entry: UpdateEntry): {

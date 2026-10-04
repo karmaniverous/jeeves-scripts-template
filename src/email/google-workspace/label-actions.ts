@@ -16,6 +16,10 @@
  *   against items enqueued before `reportOnly` was turned on
  *   ({@link planDrain}). Those items stay pending, untouched.
  *
+ * It also maps a queued action to its Gmail label changes and the
+ * `gog gmail thread modify` call drain-updates makes
+ * ({@link labelChangesFor}, {@link threadModifyArgs}).
+ *
  * Called by email/poll.ts, email/google-workspace/backfill-window.ts,
  * email/google-workspace/email-fetch.ts and
  * email/google-workspace/drain-updates.ts.
@@ -159,6 +163,53 @@ export function curationSignalActions(
     });
   }
   return actions;
+}
+
+/** Gmail label changes one `email-updates` action makes. */
+export interface LabelChanges {
+  addLabels: string[];
+  removeLabels: string[];
+}
+
+/** Fixed label changes for the label-free actions. */
+const FIXED_ACTIONS: Record<string, LabelChanges> = {
+  archive: { addLabels: [], removeLabels: ['INBOX'] },
+  trash: { addLabels: ['TRASH'], removeLabels: [] },
+  markRead: { addLabels: [], removeLabels: ['UNREAD'] },
+};
+
+/**
+ * Label changes for a queued action (`addLabel`/`removeLabel` need a
+ * label; `archive`, `trash`, `markRead` are fixed).
+ *
+ * @throws On an unknown action, or addLabel/removeLabel without a label.
+ */
+export function labelChangesFor(action: string, label?: string): LabelChanges {
+  if (action === 'addLabel' && label)
+    return { addLabels: [label], removeLabels: [] };
+  if (action === 'removeLabel' && label)
+    return { addLabels: [], removeLabels: [label] };
+  if (Object.prototype.hasOwnProperty.call(FIXED_ACTIONS, action))
+    return FIXED_ACTIONS[action];
+  throw new Error(`Unknown action: ${action}`);
+}
+
+/** `gog gmail thread modify` arguments applying `changes`. */
+export function threadModifyArgs(
+  account: string,
+  threadId: string,
+  changes: LabelChanges,
+): string[] {
+  return [
+    'gmail',
+    'thread',
+    'modify',
+    threadId,
+    ...changes.addLabels.flatMap((l) => ['--add', l]),
+    ...changes.removeLabels.flatMap((l) => ['--remove', l]),
+    '--account',
+    account,
+  ];
 }
 
 /** What drain-updates should do this run. */

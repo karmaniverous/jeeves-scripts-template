@@ -10,7 +10,9 @@ import {
   type EmailUpdateAction,
   enqueueEmailUpdates,
   enqueueLabelActions,
+  labelChangesFor,
   planDrain,
+  threadModifyArgs,
 } from './label-actions.js';
 
 const STAMP = '2026-10-04T00:00:00.000Z';
@@ -169,5 +171,71 @@ describe('planDrain', () => {
 
   it('runs with service-account-only credentials', () => {
     expect(planDrain(false, 1, sa)).toBe('run');
+  });
+});
+
+describe('labelChangesFor', () => {
+  it('maps label actions to their label', () => {
+    expect(labelChangesFor('addLabel', 'Receipts')).toEqual({
+      addLabels: ['Receipts'],
+      removeLabels: [],
+    });
+    expect(labelChangesFor('removeLabel', 'watch')).toEqual({
+      addLabels: [],
+      removeLabels: ['watch'],
+    });
+  });
+
+  it('maps the fixed actions', () => {
+    expect(labelChangesFor('archive')).toEqual({
+      addLabels: [],
+      removeLabels: ['INBOX'],
+    });
+    expect(labelChangesFor('trash')).toEqual({
+      addLabels: ['TRASH'],
+      removeLabels: [],
+    });
+    expect(labelChangesFor('markRead')).toEqual({
+      addLabels: [],
+      removeLabels: ['UNREAD'],
+    });
+  });
+
+  it('rejects unknown actions and label actions without a label', () => {
+    expect(() => labelChangesFor('explode')).toThrow('Unknown action: explode');
+    expect(() => labelChangesFor('toString')).toThrow(/Unknown action/);
+    expect(() => labelChangesFor('addLabel')).toThrow(
+      'Unknown action: addLabel',
+    );
+    expect(() => labelChangesFor('removeLabel', '')).toThrow(/Unknown action/);
+  });
+});
+
+describe('threadModifyArgs', () => {
+  it('builds the gog thread modify call', () => {
+    expect(
+      threadModifyArgs('me@example.com', 't1', labelChangesFor('trash')),
+    ).toEqual([
+      'gmail',
+      'thread',
+      'modify',
+      't1',
+      '--add',
+      'TRASH',
+      '--account',
+      'me@example.com',
+    ]);
+    expect(
+      threadModifyArgs('me@example.com', 't1', labelChangesFor('archive')),
+    ).toEqual([
+      'gmail',
+      'thread',
+      'modify',
+      't1',
+      '--remove',
+      'INBOX',
+      '--account',
+      'me@example.com',
+    ]);
   });
 });

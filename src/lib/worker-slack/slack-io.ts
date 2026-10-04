@@ -13,7 +13,7 @@
  * - `pin`: `{ target, messageId }`
  * - `edit`: `{ target, messageId, message }`
  *
- * An optional Slack `accountId` (multi-account gateways, e.g. `vc`) is
+ * An optional Slack `accountId` (multi-account gateways, e.g. `<account-id>`) is
  * passed on every call.
  */
 

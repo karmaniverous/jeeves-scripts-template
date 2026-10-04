@@ -152,20 +152,20 @@ describe('gatewaySlackIo', () => {
       .fn()
       .mockResolvedValueOnce(toolResult({ ok: true, messages: [] }))
       .mockResolvedValue(toolResult({ ok: true }));
-    const io = gatewaySlackIo(invoke, 'vc');
+    const io = gatewaySlackIo(invoke, 'acct-b');
     await io.read('channel:C000EXAMPLE1');
     await io.edit('channel:C000EXAMPLE1', '1789.1', 'v2');
     expect(invoke).toHaveBeenNthCalledWith(1, 'message', {
       action: 'read',
       channel: 'slack',
-      accountId: 'vc',
+      accountId: 'acct-b',
       target: 'channel:C000EXAMPLE1',
       limit: 20,
     });
     expect(invoke).toHaveBeenNthCalledWith(2, 'message', {
       action: 'edit',
       channel: 'slack',
-      accountId: 'vc',
+      accountId: 'acct-b',
       target: 'channel:C000EXAMPLE1',
       messageId: '1789.1',
       message: 'v2',

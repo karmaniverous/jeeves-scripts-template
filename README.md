@@ -63,12 +63,13 @@ On a jeeves-tools-managed instance the repo is checked out at `/opt/jeeves/jeeve
 | Constants barrel | `src/lib/constants.ts` (values in `src/lib/constants/`; see [lib/](src/lib/README.md#constantsts)) |
 | Instance constants | `src/lib/constants/instance.ts` (`CONTENT_DIR`, `CREDENTIALS_DIR`, `PIPELINE_CONFIG_PATH`, gateway host and port) |
 | Integration constants | `src/lib/constants/integrations.ts` (GitHub, Google/gog, Slack, X, Notion) |
-| Pipeline config | `pipeline-config.json` (accounts, buckets, refs, emailConfig); untracked, created from `pipeline-config.json.template` |
+| Pipeline config | `pipeline-config.json` (accounts, buckets, refs, emailConfig); gitignored, created from `pipeline-config.json.template` |
+| IMAP password files | `/opt/jeeves/config/credentials/imap/<secretRef>` (`IMAP_SECRETS_DIR`, under `CREDENTIALS_DIR`) |
 | Job manifests | `jobs/*.json` |
 | Shared lib | `src/lib/` |
 | Token rate card seed | `config/token-rates.seed.json` |
 
-`pipeline-config.json` is untracked but **not** gitignored, so `git add -A` would commit it: never commit it (it can hold secrets such as IMAP passwords).
+`pipeline-config.json` is gitignored: it is per-instance and never committed. It holds no secrets: an IMAP account's password is `{ "secretRef": "<name>" }`, and the poller reads it from `IMAP_SECRETS_DIR/<name>` when it connects. On jeeves-tools-managed instances those files are provisioned from the instance config's `secrets` map ([jeeves-tools#178](https://github.com/karmaniverous/jeeves-tools/issues/178)); on standalone instances write them by hand (owner jeeves, mode 0600). A literal `imap.password` string still works but is deprecated and logs a warning. See [IMAP passwords](src/email/README.md#imap-passwords).
 
 ## Running Scripts
 

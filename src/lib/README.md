@@ -14,7 +14,7 @@ Key exports:
 - Instance (`constants/instance.ts`): `INSTANCE_NAME`, `PIPELINE_CONFIG_PATH` (`<SCRIPTS_DIR>/pipeline-config.json`), `SILO_ROUTING_CONFIG_PATH` (`<CONFIG_DIR>/silo-routing.json`), `QDRANT_API_URL`, `QDRANT_SERVICE_NAME`
 - GitHub: `GH_BIN`, `GH_CONFIG_DIR` (`<CONFIG_DIR>/gh-cli`), `GH_ACCOUNT`, `GH_BOT_USER` (both empty in the template; set per instance), `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH` (OAuth client; service-account mailboxes are detected by `gog-credentials.ts` under `<GOG_CONFIG_DIR>/data/` first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`)
-- Email: `EMAIL_EVENTS_DIR`
+- Email: `EMAIL_EVENTS_DIR`, `IMAP_SECRETS_DIR` (`<CREDENTIALS_DIR>/imap`, IMAP password files named by `secretRef`)
 - Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`
 - X/Twitter: `X_OAUTH_DIR` (`<CREDENTIALS_DIR>/oauth`), `X_ACCOUNTS` (map of account handle → that account's output directory; empty in the template)
 - Notion: `NOTION_VERSION`, `NOTION_API_KEY_PATH`
@@ -73,6 +73,14 @@ Single source of truth for which gog credentials exist. Depends on `GOG_CLIENT_P
 - `detectGogCredentials(configDir?)` — `{ oauthClient, serviceAccount, any }`: OAuth client file present, any `sa-*.json` present
 - `requireGogCredentials(job, accountCount, creds?)` — `false` when `accountCount` is 0 (caller skips), `true` when any credential exists, otherwise throws so the run fails
 
+### imap-secrets.ts
+
+Resolves IMAP passwords. Depends on `IMAP_SECRETS_DIR` (`<CREDENTIALS_DIR>/imap`). Never logs a password or puts one in an error.
+
+- `isSafeSecretRef(ref)` — `true` for a plain file name: starts with a letter or digit, then letters, digits, `.`, `_`, `-`; no path separators, no `..`, at most 255 characters (used by the pipeline-config schema)
+- `imapSecretPath(ref, dir?)` — `<dir>/<ref>`, throwing on an unsafe ref
+- `resolveImapPassword(password, dir?)` — a literal string as is; `{ secretRef }` read from its file with trailing newlines removed; throws, naming the ref and path, when the file is missing, unreadable or empty
+
 ### gateway-client.ts
 
 Gateway HTTP client for OpenClaw tool invocation. Depends on `GATEWAY_HOST`, `GATEWAY_PORT`.
@@ -89,7 +97,7 @@ Gateway RPC caller for methods that are not HTTP tools, or whose tool wrapper li
 
 ### pipeline-config.ts
 
-Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`.
+Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`. Deprecated forms (`emailConfig.receipt.forwardJGS`, a literal `imap.password` string) still load, each with a one-line `pipeline-config:` warning logged once per process.
 
 - `loadPipelineConfig()` — load and cache config with Zod validation
 - `getRef(key)` — get a ref value by dotted key (e.g., `'notion.socialPostsDatabaseId'`); throws if missing
@@ -173,7 +181,7 @@ Two JSON configuration files control pipeline behavior. Both paths are set via c
 
 ### `pipeline-config.json`
 
-Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts` (`<SCRIPTS_DIR>/pipeline-config.json`, the repo root). The repo ships `pipeline-config.json.template` as a starting point. `pipeline-config.json` itself is untracked but **not** gitignored, so `git add -A` would commit it (and any IMAP password in it): never commit it.
+Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts` (`<SCRIPTS_DIR>/pipeline-config.json`, the repo root). The repo ships `pipeline-config.json.template` as a starting point. `pipeline-config.json` itself is gitignored (per-instance, never committed) and holds no secrets: IMAP passwords are `secretRef`s to files in `IMAP_SECRETS_DIR` (see below).
 
 Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-bucket routing, external service refs, and email behavior.
 
@@ -197,7 +205,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
         "port": 993,
         "tls": true,
         "user": "user@imap.example.com",
-        "password": "..."
+        "password": { "secretRef": "user-imap-example-com" }
       },
       "folders": ["INBOX", "Sent"]
     }
@@ -228,7 +236,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 
 **Fields:**
 
-- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. `type: "imap"` requires an `imap` connection block; any account with an `imap` block is polled over IMAP (a `gmail` one with Gmail extensions), the rest through gog. `folders` is optional (IMAP only): without it, `gmail` accounts poll `[Gmail]/All Mail`, `[Gmail]/Spam` and `[Gmail]/Trash`, generic IMAP accounts every folder the server lists. `imap.password` is read literally (no secret references), so never commit this file. See [email/](../email/README.md#account-configuration).
+- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. `type: "imap"` requires an `imap` connection block; any account with an `imap` block is polled over IMAP (a `gmail` one with Gmail extensions), the rest through gog. `folders` is optional (IMAP only): without it, `gmail` accounts poll `[Gmail]/All Mail`, `[Gmail]/Spam` and `[Gmail]/Trash`, generic IMAP accounts every folder the server lists. `imap.password` is `{ "secretRef": "<name>" }`: the poller reads the password from `<CREDENTIALS_DIR>/imap/<name>` (`IMAP_SECRETS_DIR`) when it connects, and jeeves-tools provisions that file from the instance config's `secrets` map ([jeeves-tools#178](https://github.com/karmaniverous/jeeves-tools/issues/178)). A literal string is still accepted but deprecated (one warning per process). See [email/](../email/README.md#imap-passwords).
 - `accounts[].calendar` — Either `{ "serviceAccount": "auto" }` (Workspace mailbox via the service-account registration gog keeps for it) or `{ "tokenFile": "<path relative to CREDENTIALS_DIR>" }` (OAuth refresh token; needs the gog OAuth client). See [calendar/](../calendar/README.md#account-configuration).
 - `buckets.domains` — Maps email domains to classification buckets. `pattern` is matched case-insensitively.
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).

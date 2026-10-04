@@ -38,7 +38,7 @@ const VALID_CONFIG = {
         port: 993,
         tls: true,
         user: 'carol@example.com',
-        password: 'secret',
+        password: { secretRef: 'carol' },
       },
       folders: ['INBOX', 'Sent'],
     },

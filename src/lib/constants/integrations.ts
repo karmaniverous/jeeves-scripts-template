@@ -61,6 +61,15 @@ export const GITHUB_REGISTRY_PATH = path.join(GITHUB_DIR, 'registry.json');
  */
 export const EMAIL_EVENTS_DIR = `${JEEVES_BASE_DIR}/state/runner/email-events`;
 
+/**
+ * Directory holding IMAP password files. An account whose
+ * `imap.password` is `{ "secretRef": "<name>" }` reads its password from
+ * `<IMAP_SECRETS_DIR>/<name>` when the poller connects. jeeves-tools
+ * provisions these files (owner jeeves, mode 0600) from the instance
+ * config's `secrets` map.
+ */
+export const IMAP_SECRETS_DIR = path.join(CREDENTIALS_DIR, 'imap');
+
 // ========== Google Auth [REQUIRED] ==========
 
 /**

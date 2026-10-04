@@ -92,7 +92,7 @@ The manifest (`jobs/email.json`) is authoritative. All four entries carry a non-
   Detection lives in one place, `src/lib/gog-credentials.ts`. If gog accounts are configured but neither credential type exists, `poll`, `download`, `drain-updates` and `backfill-historical` **fail** (non-zero exit, clear message) instead of skipping; `drain-updates` fails even when `reportOnly` is set. With no gog accounts configured they skip quietly. For `download` and `drain-updates`, "gog accounts" means `getGmailAccounts()`: polled accounts without an `imap` block plus `emailConfig.backfill.accounts`, so items queued by a backfill-only account are still consumed.
 
 - **`emailConfig.reportOnly: true`**: mail is still ingested and archived, but nothing is written back to Gmail. Every `email-updates` write goes through `google-workspace/label-actions.ts`, so `poll`, `backfill-historical` and the one-shot `backfill-classification.ts` / `backfill-labels.ts` enqueue neither classification labels nor curation-signal actions (`watch` added/removed by `email-fetch.ts`), `meetings/extract.ts` enqueues no `meeting` label or archive (`meetings/lib/email-actions.ts`), and `drain-updates` dequeues and applies nothing (any items already queued are left pending until `reportOnly` is turned off).
-- **IMAP accounts**: `imap` connection block in pipeline config with host/port/user/password (see below).
+- **IMAP accounts**: `imap` connection block in pipeline config with host/port/user/password, the password normally a `secretRef` to a file in `IMAP_SECRETS_DIR` (see [IMAP passwords](#imap-passwords)).
 - All accounts: listed in `pipeline-config.json` with `emailPolling: true` and a `type` field (`gmail` or `imap`).
 
 ## Account Configuration
@@ -109,7 +109,7 @@ Accounts are entries in the `accounts` array of `pipeline-config.json` (schema: 
     "port": 993,
     "tls": true,
     "user": "user@example.com",
-    "password": "<secret>"
+    "password": { "secretRef": "user-example-com" }
   },
   "folders": ["INBOX", "Sent"]
 }
@@ -117,7 +117,16 @@ Accounts are entries in the `accounts` array of `pipeline-config.json` (schema: 
 
 - `type` is `gmail` or `imap`; `type: "imap"` requires the `imap` block (schema error otherwise). A `gmail` account **with** an `imap` block is polled over IMAP using the Gmail extensions (thread ids, labels); a `gmail` account without one goes through gog.
 - `folders` is optional (IMAP only). Without it, `gmail` accounts poll `[Gmail]/All Mail`, `[Gmail]/Spam` and `[Gmail]/Trash`; generic IMAP accounts poll every folder the server lists.
-- **IMAP passwords** are read literally from `imap.password`; there is no secret-reference mechanism. `pipeline-config.json` is untracked but not gitignored, so never commit it.
+- `imap.password` is a secret reference (below). `pipeline-config.json` is gitignored and holds no secrets.
+
+### IMAP passwords
+
+`imap.password` takes one of two forms (schema: `src/lib/pipeline-config.ts`; resolver: `src/lib/imap-secrets.ts`):
+
+- **`{ "secretRef": "<name>" }`** (preferred). The password lives in the file `IMAP_SECRETS_DIR/<name>`, i.e. `<CREDENTIALS_DIR>/imap/<name>` (`/opt/jeeves/config/credentials/imap/<name>` on a standard instance). `<name>` must be a plain file name: letters, digits, `.`, `_`, `-`, starting with a letter or digit, no path separators and no `..`; anything else fails config validation. The poller reads the file each time it connects, so a rotated password needs no restart; trailing newlines are removed. A missing, unreadable or empty file fails that account's poll with an error naming the ref and the path (never the value); the other accounts are still polled.
+- **A literal string** (deprecated). Still accepted, but loading the config logs one warning per process: `pipeline-config: accounts[].imap.password as a plain string is deprecated; put the password in a file in <IMAP_SECRETS_DIR> and set imap.password to { "secretRef": "<file name>" }.`
+
+Provisioning: on a jeeves-tools-managed instance, put each password in the instance config's `secrets` map under the same name as the `secretRef`; deploy writes it to `IMAP_SECRETS_DIR/<name>` (owner jeeves, mode 0600) and never logs it (see [jeeves-tools#178](https://github.com/karmaniverous/jeeves-tools/issues/178)). On a standalone instance, create the file yourself with the same owner and mode. The password is never logged, written to runner state or included in an error.
 
 ---
 

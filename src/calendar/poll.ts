@@ -8,7 +8,9 @@
  * getCalendarAccounts(), fetches events via the Calendar API, and writes
  * individual JSON files to the silo-routed data archive with SHA-256
  * hash-based change detection. Requires CREDENTIALS_DIR, GOG_CLIENT_PATH,
- * and GOG_CONFIG_DIR from constants for Google auth setup.
+ * and GOG_CONFIG_DIR from constants for Google auth setup. Service-account
+ * accounts (`calendar.serviceAccount: "auto"`) use the key gog registered
+ * at `<GOG_CONFIG_DIR>/data/sa-<base64(email)>.json`.
  */
 
 import crypto from 'node:crypto';
@@ -25,6 +27,10 @@ import {
   GOG_CLIENT_PATH,
   GOG_CONFIG_DIR,
 } from '../lib/constants.js';
+import {
+  findServiceAccountFile,
+  requireGogCredentials,
+} from '../lib/gog-credentials.js';
 import { getCalendarAccounts } from '../lib/pipeline-config.js';
 import { getBasePathForEmailDomain } from '../lib/silo-router.js';
 import {
@@ -38,14 +44,6 @@ const googleAuth = createGoogleAuth({
   credentialsDir: CREDENTIALS_DIR,
   serviceAccountDir: GOG_CONFIG_DIR,
 });
-
-function findServiceAccountFile(email: string): string | null {
-  const encoded = Buffer.from(email).toString('base64').replace(/=/g, '');
-  const filename = `sa-${encoded}.json`;
-  const fullPath = path.join(GOG_CONFIG_DIR, filename);
-  if (fs.existsSync(fullPath)) return fullPath;
-  return null;
-}
 
 // ========== Config ==========
 
@@ -209,8 +207,10 @@ async function pollAccount(
 // ========== Main ==========
 
 async function main(): Promise<void> {
-  if (!fs.existsSync(GOG_CLIENT_PATH)) {
-    console.log('[skip] Google OAuth credentials not configured');
+  // OAuth client or service-account mailboxes both work; neither with
+  // calendar accounts configured is a failed run, not a silent skip.
+  if (!requireGogCredentials('calendar/poll', getCalendarAccounts().length)) {
+    console.log('[skip] No calendar accounts configured');
     return;
   }
 

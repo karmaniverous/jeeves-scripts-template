@@ -7,6 +7,7 @@ import {
   getBucketPriority,
   getCalendarAccounts,
   getEmailAccounts,
+  getGmailAccounts,
   getRef,
   loadPipelineConfig,
   resetPipelineConfig,
@@ -100,6 +101,12 @@ describe('pipeline-config', () => {
     it('returns emails of accounts with emailPolling enabled', () => {
       const emails = getEmailAccounts();
       expect(emails).toEqual(['alice@example.com', 'carol@example.com']);
+    });
+  });
+
+  describe('getGmailAccounts', () => {
+    it('returns polled accounts without an imap block', () => {
+      expect(getGmailAccounts()).toEqual(['alice@example.com']);
     });
   });
 

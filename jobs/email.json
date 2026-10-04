@@ -9,7 +9,7 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "email",
-    "prerequisite": "Gmail OAuth via gog or IMAP credentials"
+    "prerequisite": "Gmail via gog (OAuth client or service-account mailboxes) or IMAP credentials"
   },
   {
     "id": "email-download",
@@ -21,7 +21,7 @@
     "timeout_seconds": 600,
     "enabled": true,
     "domain": "email",
-    "prerequisite": "Gmail OAuth via gog"
+    "prerequisite": "Gmail via gog (OAuth client or service-account mailboxes)"
   },
   {
     "id": "email-drain-updates",
@@ -33,6 +33,6 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "email",
-    "prerequisite": "Gmail OAuth via gog"
+    "prerequisite": "Gmail via gog (OAuth client or service-account mailboxes)"
   }
 ]

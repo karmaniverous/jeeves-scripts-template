@@ -12,18 +12,25 @@
  * EMAIL_EVENTS_DIR.
  *
  * Depends on EMAIL_EVENTS_DIR for run logging. Rate limit is hardcoded
- * via MAX_CALLS_PER_MINUTE constant.
+ * via MAX_CALLS_PER_MINUTE constant. Applies nothing (and dequeues
+ * nothing) when emailConfig.reportOnly is true. Fails when Gmail
+ * accounts are configured but gog has no OAuth client and no
+ * service-account mailboxes.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { appendJsonl, nowIso, runScript, sleepMs } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { EMAIL_EVENTS_DIR, GOG_CLIENT_PATH } from '../../lib/constants.js';
+import { EMAIL_EVENTS_DIR } from '../../lib/constants.js';
 import { gogWithRetry } from '../../lib/gog.js';
+import {
+  getGmailAccounts,
+  loadPipelineConfig,
+} from '../../lib/pipeline-config.js';
 import { loadCache, saveCache } from '../email-cache.js';
+import { EMAIL_UPDATES_QUEUE, planDrain } from './label-actions.js';
 
 const MAX_CALLS_PER_MINUTE = 60;
 
@@ -156,14 +163,24 @@ function processEntry(entry: UpdateEntry): {
 }
 
 function main(): void {
-  if (!fs.existsSync(GOG_CLIENT_PATH)) {
-    console.log('[skip] Google OAuth credentials not configured');
+  const plan = planDrain(
+    loadPipelineConfig().emailConfig.reportOnly,
+    getGmailAccounts().length,
+  );
+  if (plan === 'report-only') {
+    console.log(
+      '[report-only] emailConfig.reportOnly is true: no Gmail changes applied; queue left untouched',
+    );
+    return;
+  }
+  if (plan === 'skip') {
+    console.log('[skip] No Gmail accounts configured');
     return;
   }
 
   const client = getRunnerClient();
   try {
-    const items = client.dequeue('email-updates', 100);
+    const items = client.dequeue(EMAIL_UPDATES_QUEUE, 100);
     if (items.length === 0) {
       console.log('Queue is empty');
       return;

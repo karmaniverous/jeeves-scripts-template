@@ -28,11 +28,7 @@ import {
 } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import {
-  EMAIL_EVENTS_DIR,
-  GOG_CLIENT_PATH,
-  GOG_CONFIG_DIR,
-} from '../../lib/constants.js';
+import { EMAIL_EVENTS_DIR } from '../../lib/constants.js';
 import {
   extractAttachments,
   extractTextFromPayload,
@@ -41,6 +37,8 @@ import {
   headerValue,
 } from '../../lib/email.js';
 import { gogWithRetry } from '../../lib/gog.js';
+import { requireGogCredentials } from '../../lib/gog-credentials.js';
+import { getGmailAccounts } from '../../lib/pipeline-config.js';
 import { getThreadsPath } from '../email-cache.js';
 
 function messageExists(
@@ -81,16 +79,8 @@ function downloadMessage(
 }
 
 function main(): void {
-  const hasGogOAuth = fs.existsSync(GOG_CLIENT_PATH);
-  const hasGogServiceAccount =
-    fs.existsSync(path.join(GOG_CONFIG_DIR, 'data')) &&
-    fs
-      .readdirSync(path.join(GOG_CONFIG_DIR, 'data'))
-      .some((f) => f.startsWith('sa-'));
-  if (!hasGogOAuth && !hasGogServiceAccount) {
-    console.log(
-      '[skip] No Google OAuth or service account credentials configured',
-    );
+  if (!requireGogCredentials('email/download', getGmailAccounts().length)) {
+    console.log('[skip] No Gmail accounts configured');
     return;
   }
 

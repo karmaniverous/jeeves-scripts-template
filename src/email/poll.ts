@@ -13,7 +13,10 @@
  *
  * Depends on EMAIL_EVENTS_DIR, emailConfig.reportOnly, and bucket domain
  * config from pipeline-config. Missing config causes classification to
- * return null buckets (labels skipped).
+ * return null buckets (labels skipped). When reportOnly is true, threads
+ * are still ingested but no Gmail label actions are enqueued. gog
+ * accounts work with an OAuth client or service-account mailboxes; if
+ * gog accounts are configured and neither exists, the run fails.
  */
 
 import fs from 'node:fs';
@@ -27,8 +30,9 @@ import {
 } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
-import { EMAIL_EVENTS_DIR, GOG_CLIENT_PATH } from '../lib/constants.js';
+import { EMAIL_EVENTS_DIR } from '../lib/constants.js';
 import { gogWithRetry } from '../lib/gog.js';
+import { requireGogCredentials } from '../lib/gog-credentials.js';
 import { loadPipelineConfig } from '../lib/pipeline-config.js';
 import {
   getThreadState,
@@ -44,6 +48,7 @@ import {
   isReceiptCandidate,
   looksImportantBySummary,
 } from './google-workspace/email-triage.js';
+import { enqueueLabelActions } from './google-workspace/label-actions.js';
 import { pollImapAccount } from './imap/poll.js';
 
 async function main(): Promise<void> {
@@ -83,11 +88,11 @@ async function main(): Promise<void> {
     }
 
     // ── gog accounts ───────────────────────────────────────────────
-    const hasGog = fs.existsSync(GOG_CLIENT_PATH);
-    if (!hasGog && gogAccounts.length > 0) {
-      console.log(
-        '[gog] OAuth credentials not configured — skipping gog accounts',
-      );
+    // Throws (failed run) when Gmail accounts exist but gog has neither
+    // an OAuth client nor service-account mailboxes.
+    const hasGog = requireGogCredentials('email/poll', gogAccounts.length);
+    if (reportOnly && hasGog) {
+      console.log('[gog] reportOnly: no Gmail label actions will be enqueued');
     }
 
     for (const acctCfg of hasGog ? gogAccounts : []) {
@@ -211,21 +216,17 @@ async function main(): Promise<void> {
             labelApplied,
           });
 
-          const stamp = nowIso();
-          for (const lbl of labelsToApply) {
-            client.enqueue('email-updates', {
-              account,
-              messageId: msgId,
-              threadId: tid,
-              action: 'addLabel',
-              label: lbl,
-              source: 'poll-classification',
-              reason: 'Auto-label from triage classification',
-              createdAt: stamp,
-            });
-            labelApplied[lbl] = stamp;
-            labelC++;
-          }
+          const r = enqueueLabelActions(client, {
+            account,
+            messageId: msgId,
+            threadId: tid,
+            labels: labelsToApply,
+            source: 'poll-classification',
+            reason: 'Auto-label from triage classification',
+            reportOnly,
+          });
+          Object.assign(labelApplied, r.applied);
+          labelC += r.enqueued;
         }
         lblC += labelC;
 

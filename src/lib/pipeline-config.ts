@@ -152,6 +152,16 @@ export function getEmailAccounts(): string[] {
     .map((a) => a.email);
 }
 
+/**
+ * Email addresses of polled accounts served by gog (Gmail / Google
+ * Workspace), i.e. emailPolling accounts without an `imap` block.
+ */
+export function getGmailAccounts(): string[] {
+  return loadPipelineConfig()
+    .accounts.filter((a) => a.emailPolling && !a.imap)
+    .map((a) => a.email);
+}
+
 /** Match a domain to a bucket name, or null if no match. */
 export function getBucketForDomain(domain: string): string | null {
   const d = domain.toLowerCase();

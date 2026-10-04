@@ -7,6 +7,8 @@
  * pipeline. Called by email/poll.ts for accounts with an `imap` block.
  *
  * Input: AccountConfig with imap credentials + RunnerClient for state.
+ * A `{ secretRef }` password is read from its file (lib/imap-secrets.ts)
+ * at connect time; the password is never logged.
  * Output: per-thread directories written to silo-routed content paths.
  */
 
@@ -19,6 +21,7 @@ import type { MailboxLockObject, MailboxObject } from 'imapflow';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
+import { resolveImapPassword } from '../../lib/imap-secrets.js';
 import type { AccountConfig } from '../../lib/pipeline-config.js';
 import { createOrUpdateCache, getThreadsPath } from '../email-cache.js';
 import type { AccountTypeDefinition } from './account-types.js';
@@ -262,11 +265,14 @@ export async function pollImapAccount(
   };
   if (!account.imap) return totals;
 
+  // Throws (naming the ref and path, never the value) when a secretRef
+  // file is missing or unreadable; poll.ts logs it and moves on.
+  const pass = resolveImapPassword(account.imap.password);
   const conn = new ImapFlow({
     host: account.imap.host,
     port: account.imap.port,
     secure: account.imap.tls,
-    auth: { user: account.imap.user, pass: account.imap.password },
+    auth: { user: account.imap.user, pass },
     logger: false,
   });
 

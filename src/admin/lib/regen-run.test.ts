@@ -1,9 +1,9 @@
 /**
- * Orchestration tests for regenerate-token-metrics (lib/regen-run.ts) with
- * fake adapters: live rebuild order (backup → delete → flush → cursor
+ * Orchestration tests for regenerate-token-metrics (lib/regen-run.ts), live
+ * mode, with fake adapters: rebuild order (backup → delete → flush → cursor
  * replace), bounded --to rebuilds (counted-only, cursors untouched),
  * dry-run non-mutation, backup failure aborting before deletion, the
- * unknown-model gate and scratch mode.
+ * unknown-model gate and the upgrade-cutoff guard.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,108 +12,15 @@ import {
   TOKEN_METRICS_CC_CURSOR_KEY,
   TOKEN_METRICS_DB_CURSOR_KEY,
 } from '../../lib/constants.js';
-import type { HourlyBucket } from '../types/token-metrics.js';
-import { type RegenArgs, type RegenDeps, runRegen } from './regen-run.js';
-
-const CUTOFF = Date.parse('2026-09-28T12:00:00Z');
-const FROM = '2026-09-24T09:00:00Z';
-const FROM_MS = Date.parse(FROM);
-
-const args = (over: Partial<RegenArgs> = {}): RegenArgs => ({
-  from: FROM,
-  to: '',
-  out: '',
-  dryRun: false,
-  allowPreUpgrade: false,
-  ...over,
-});
-
-function harness(stored: Record<string, string> = {}) {
-  const log: string[] = [];
-  const state = new Map(Object.entries(stored));
-  const bucket = (b: Map<string, HourlyBucket>) => {
-    b.set('2026-09-24T09', { hour: '2026-09-24T09', channels: {} });
-  };
-  const deps = {
-    agentDbPath: '/db',
-    agentDbExists: true,
-    cutoffMs: CUTOFF,
-    upgradeCutoff: FROM,
-    scanOpenClaw: vi.fn(
-      (
-        cursors: Record<string, unknown>,
-        o: { countedOnly?: boolean },
-        b: Map<string, HourlyBucket>,
-        seen: Set<string>,
-      ) => {
-        log.push('scan-oc');
-        bucket(b);
-        seen.add('anthropic/claude-opus-5-5');
-        if (!o.countedOnly)
-          cursors['session:new'] = { lastSeq: 9, lastTimestamp: 1 };
-        return Promise.resolve({
-          schemaVersion: 23,
-          transcriptsProcessed: 1,
-          usageCounted: 1,
-        });
-      },
-    ),
-    scanClaudeCode: vi.fn(
-      (
-        _f: number,
-        _t: number,
-        cursors: Record<string, unknown>,
-        _b: unknown,
-        _s: unknown,
-        o: { countedOnly?: boolean },
-      ) => {
-        log.push('scan-cc');
-        if (!o.countedOnly)
-          cursors['cc:file'] = { byteOffset: 999, lastTimestamp: 2 };
-        return { ccProcessed: 1 };
-      },
-    ),
-    knownModels: (): Record<string, unknown> => ({
-      'anthropic/claude-opus-5-5': {},
-    }),
-    bucketExists: vi.fn(() => false),
-    backup: vi.fn((_h: string[], dry: boolean) => {
-      log.push(`backup:${String(dry)}`);
-      return 3;
-    }),
-    remove: vi.fn((_h: string[], dry: boolean) => {
-      log.push(`remove:${String(dry)}`);
-      return 3;
-    }),
-    flush: vi.fn((b: Map<string, HourlyBucket>, dir?: string) => {
-      log.push(`flush:${dir ?? 'live'}`);
-      return b.size;
-    }),
-    nameDms: vi.fn((_b: unknown, dry: boolean) => {
-      log.push(`names:${String(dry)}`);
-      return Promise.resolve();
-    }),
-    openState: vi.fn(() => ({
-      get: (k: string) => state.get(k) ?? null,
-      set: (k: string, v: string) => {
-        log.push(`set:${k}`);
-        state.set(k, v);
-      },
-      close: () => {
-        log.push('close');
-      },
-    })),
-  };
-  return { deps: deps as unknown as RegenDeps & typeof deps, log, state };
-}
-
-const DB_CURSOR = JSON.stringify({
-  'session:a': { lastSeq: 4, lastTimestamp: 0 },
-});
-const CC_CURSOR = JSON.stringify({
-  'cc:file': { byteOffset: 50, lastTimestamp: FROM_MS + 1 },
-  'cc:old': { byteOffset: 10, lastTimestamp: FROM_MS - 1 },
-});
+import {
+  args,
+  CC_CURSOR,
+  CUTOFF,
+  DB_CURSOR,
+  FROM_MS,
+  harness,
+} from './regen-run.fixtures.js';
+import { runRegen } from './regen-run.js';
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -235,33 +142,32 @@ describe('runRegen (live)', () => {
       1,
     );
     expect(h.deps.scanOpenClaw).not.toHaveBeenCalled();
-  });
-});
 
-describe('runRegen (scratch)', () => {
-  it('writes only to the scratch dir and never opens runner state', async () => {
-    const h = harness();
-    expect(await runRegen(args({ out: '/scratch' }), h.deps)).toBe(0);
-    expect(h.log).toEqual([
-      'scan-oc',
-      'scan-cc',
-      'names:false',
-      'flush:/scratch',
-    ]);
-    expect(h.deps.openState).not.toHaveBeenCalled();
-    expect(h.deps.scanOpenClaw.mock.calls[0][1].countedOnly).toBe(false);
+    expect(
+      await runRegen(
+        args({ from: '2026-09-20T00:00:00Z', allowPreUpgrade: true }),
+        h.deps,
+      ),
+    ).toBe(0);
+    expect(h.deps.scanOpenClaw).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a scratch dir that already holds buckets in range', async () => {
-    const h = harness();
-    h.deps.bucketExists.mockReturnValue(true);
-    expect(await runRegen(args({ out: '/scratch' }), h.deps)).toBe(1);
-    expect(h.deps.scanOpenClaw).not.toHaveBeenCalled();
-  });
-
-  it('fails without an agent DB', async () => {
-    const h = harness();
-    h.deps.agentDbExists = false;
-    expect(await runRegen(args(), h.deps)).toBe(1);
-  });
+  it.each([
+    ['unset', undefined],
+    ['invalid', 'not-a-date'],
+  ])(
+    'refuses when OPENCLAW_UPGRADE_CUTOFF is %s, even dry or with --allow-pre-upgrade',
+    async (_label, cutoff) => {
+      const h = harness();
+      h.deps.upgradeCutoff = cutoff;
+      for (const over of [{}, { dryRun: true }, { allowPreUpgrade: true }]) {
+        expect(await runRegen(args(over), h.deps)).toBe(1);
+      }
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringMatching(/OPENCLAW_UPGRADE_CUTOFF/),
+      );
+      expect(h.deps.openState).not.toHaveBeenCalled();
+      expect(h.deps.scanOpenClaw).not.toHaveBeenCalled();
+    },
+  );
 });

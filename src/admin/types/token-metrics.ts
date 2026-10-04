@@ -46,7 +46,12 @@ export interface ChannelBucket {
 /** Channels keyed by channel key string. */
 export type Channels = Record<string, ChannelBucket>;
 
-/** Per-model pricing reference (token counts only, no costs). */
+/**
+ * Pricing reference: the rate card's rates in dollars per million tokens
+ * (`$/MTok`) per token category, for every model in the card (used in the
+ * range or not). Not usage: token counts are under
+ * `models[model].tokens[category].count`.
+ */
 export interface Ref {
   [model: string]: Record<TokenCategory, number>;
 }

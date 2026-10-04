@@ -246,4 +246,26 @@ describe('getTokenMetrics', () => {
     expect(costs.models).not.toHaveProperty('openai/gpt-4o');
     expect(costs.channels).toHaveProperty('heartbeat');
   });
+
+  it('reports ref as the rate card ($/MTok per model), not token usage', async () => {
+    const { getTokenMetrics } = await loadModule();
+    const from = new Date('2099-01-15T10:00:00Z').getTime() / 1000;
+    const to = new Date('2099-01-15T10:59:59Z').getTime() / 1000;
+    const costs = getTokenMetrics({ fromTs: from, toTs: to });
+
+    // gpt-4o has no usage in this hour but is in the rate card.
+    expect(costs.ref).toEqual({
+      'anthropic/claude-opus-4-6': {
+        input: 15,
+        output: 75,
+        cacheRead: 1.5,
+        cacheWrite: 3.75,
+      },
+      'openai/gpt-4o': { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0 },
+    });
+    // Usage counts live under models[model].tokens[category].count.
+    expect(costs.models['anthropic/claude-opus-4-6'].tokens.input.count).toBe(
+      150,
+    );
+  });
 });

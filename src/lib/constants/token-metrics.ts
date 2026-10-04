@@ -34,16 +34,23 @@ export const OPENCLAW_AGENT_DB_PATH = path.join(
   '.openclaw/agents/main/agent/openclaw-agent.sqlite',
 );
 
+/** Environment variable that holds {@link OPENCLAW_UPGRADE_CUTOFF}. */
+export const OPENCLAW_UPGRADE_CUTOFF_ENV = 'OPENCLAW_UPGRADE_CUTOFF';
+
 /**
  * First UTC hour of OpenClaw 2026.9 usage on this instance (the hour it
- * switched to the agent SQLite store). Hours before it were counted by the
- * legacy JSONL collector and must not be rewritten, so
- * regenerate-token-metrics refuses an earlier --from unless
- * --allow-pre-upgrade is given. Set per instance; override with the
- * OPENCLAW_UPGRADE_CUTOFF environment variable.
+ * switched to the agent SQLite store), ISO 8601. Hours before it were
+ * counted by the legacy JSONL collector and must not be rewritten.
+ *
+ * Per instance, read from the OPENCLAW_UPGRADE_CUTOFF environment
+ * variable, with NO default: undefined when unset or empty. Only live
+ * regenerate-token-metrics runs use it; they refuse to run without it and
+ * refuse an earlier --from unless --allow-pre-upgrade is given. The
+ * hourly collector, scratch (--out) regenerations and reports never read
+ * it.
  */
-export const OPENCLAW_UPGRADE_CUTOFF =
-  process.env.OPENCLAW_UPGRADE_CUTOFF ?? '2026-09-24T09:00:00Z';
+export const OPENCLAW_UPGRADE_CUTOFF: string | undefined =
+  process.env[OPENCLAW_UPGRADE_CUTOFF_ENV] || undefined;
 
 /**
  * Directory where token metric bucket files are written. Each hourly

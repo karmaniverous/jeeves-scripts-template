@@ -45,9 +45,8 @@ import {
 import { fetchThreadMetadata } from './google-workspace/email-fetch.js';
 import {
   classifyBucket,
+  classifyCandidates,
   computeLabelsToApply,
-  isJunkCandidate,
-  isReceiptCandidate,
   looksImportantBySummary,
 } from './google-workspace/email-triage.js';
 import {
@@ -131,8 +130,10 @@ async function main(): Promise<void> {
           labels,
         } = t;
 
-        const rc = isReceiptCandidate(subj, snip, from, account);
-        const jc = !rc && isJunkCandidate(subj, snip, from);
+        const { receiptCandidate: rc, junkCandidate: jc } = classifyCandidates(
+          { subject: subj, snippet: snip, from },
+          account,
+        );
         const bucket = classifyBucket(account, to, subj, snip, from);
         const prev = getThreadState(client, account, tid);
         const isUpd =

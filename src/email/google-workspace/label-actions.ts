@@ -11,7 +11,9 @@
  * - producers enqueue no `email-updates` actions
  *   ({@link enqueueEmailUpdates}): classification labels from poll and
  *   backfill-historical ({@link enqueueLabelActions}) and human-curation
- *   signals detected by email-fetch ({@link curationSignalActions});
+ *   signals detected by email-fetch ({@link curationSignalActions}) and
+ *   the `meeting` label / archive for threads meetings/extract.ts
+ *   turns into meeting packages;
  * - the consumer (drain-updates) applies none, as defence in depth
  *   against items enqueued before `reportOnly` was turned on
  *   ({@link planDrain}). Those items stay pending, untouched.
@@ -21,8 +23,8 @@
  * ({@link labelChangesFor}, {@link threadModifyArgs}).
  *
  * Called by email/poll.ts, email/google-workspace/backfill-window.ts,
- * email/google-workspace/email-fetch.ts and
- * email/google-workspace/drain-updates.ts.
+ * email/google-workspace/email-fetch.ts,
+ * email/google-workspace/drain-updates.ts and meetings/extract.ts.
  */
 
 import { nowIso } from '@karmaniverous/jeeves';
@@ -36,16 +38,24 @@ import {
 /** Queue consumed by drain-updates. */
 export const EMAIL_UPDATES_QUEUE = 'email-updates';
 
-/** A Gmail label mutation for drain-updates (without its timestamp). */
-export interface EmailUpdateAction {
+/** Fields every `email-updates` action carries. */
+interface EmailUpdateBase {
   account: string;
   threadId: string;
   messageId: string;
-  action: 'addLabel' | 'removeLabel';
-  label: string;
   source: string;
   reason: string;
 }
+
+/**
+ * A Gmail mutation for drain-updates (without its timestamp): add or
+ * remove a label, or archive (remove `INBOX`).
+ */
+export type EmailUpdateAction = EmailUpdateBase &
+  (
+    | { action: 'addLabel' | 'removeLabel'; label: string }
+    | { action: 'archive' }
+  );
 
 /**
  * Enqueue `actions` on {@link EMAIL_UPDATES_QUEUE}, stamped with one

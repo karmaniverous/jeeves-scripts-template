@@ -34,9 +34,8 @@ import {
 } from '../email-state.js';
 import {
   classifyBucket,
+  classifyCandidates,
   computeLabelsToApply,
-  isJunkCandidate,
-  isReceiptCandidate,
   newLabelCounts,
 } from './email-triage.js';
 import { enqueueLabelActions } from './label-actions.js';
@@ -109,14 +108,14 @@ function main(): void {
         const to = firstMsg?.to || '';
         const snippet = firstMsg?.snippet || '';
 
-        // Classify
-        const receipt = reclassifyBuckets
-          ? (ts.receiptCandidate ??
-            isReceiptCandidate(subject, snippet, from, account))
-          : isReceiptCandidate(subject, snippet, from, account);
-        const junk = reclassifyBuckets
-          ? (ts.junkCandidate ?? isJunkCandidate(subject, snippet, from))
-          : isJunkCandidate(subject, snippet, from);
+        // Classify (--reclassify-buckets keeps stored receipt/junk flags);
+        // junk is never set on a receipt candidate
+        const { receiptCandidate: receipt, junkCandidate: junk } =
+          classifyCandidates(
+            { subject, snippet, from },
+            account,
+            reclassifyBuckets ? ts : {},
+          );
         const bucket = classifyBucket(account, to, subject, snippet, from);
 
         // In reclassify mode, only count if bucket actually changed

@@ -3,9 +3,10 @@
  *
  * Google Calendar REST API helpers for listing calendars and events.
  *
- * Pure HTTP wrappers consumed by calendar/poll. Handles pagination
- * transparently; callers supply an OAuth access token and receive
- * typed results. No dependency on project constants or config.
+ * Pure HTTP wrappers consumed by calendar/poll. Both lists are paged by
+ * the API; every page is followed (`nextPageToken`), so callers get every
+ * calendar and every event. Callers supply an OAuth access token and
+ * receive typed results. No dependency on project constants or config.
  */
 
 const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -30,69 +31,78 @@ export interface CalendarEvent {
   [key: string]: unknown;
 }
 
+/** One page of a Calendar API list response. */
+interface ListPage<T> {
+  items?: T[];
+  nextPageToken?: string;
+}
+
+/**
+ * Every item of a paged Calendar API list, following `nextPageToken`.
+ *
+ * @param url - URL of the list, without a page token.
+ * @param accessToken - OAuth access token.
+ * @param failure - Error message prefix, e.g. `calendarList failed`.
+ * @throws On a non-OK response: `<failure>: <status> <body>`.
+ */
+async function listAllPages<T>(
+  url: URL,
+  accessToken: string,
+  failure: string,
+): Promise<T[]> {
+  const items: T[] = [];
+  let pageToken: string | undefined;
+  do {
+    const pageUrl = new URL(url);
+    if (pageToken) pageUrl.searchParams.set('pageToken', pageToken);
+    const resp = await fetch(pageUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`${failure}: ${String(resp.status)} ${body}`);
+    }
+    const page = (await resp.json()) as ListPage<T>;
+    if (page.items) items.push(...page.items);
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return items;
+}
+
+/** Every calendar on the account's calendar list (all pages). */
 export async function listCalendars(
   accessToken: string,
 ): Promise<CalendarEntry[]> {
-  const resp = await fetch(`${CAL_BASE}/users/me/calendarList`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!resp.ok) {
-    throw new Error(`calendarList failed: ${String(resp.status)}`);
-  }
-  const data = (await resp.json()) as { items?: CalendarEntry[] };
-  return data.items ?? [];
+  return listAllPages<CalendarEntry>(
+    new URL(`${CAL_BASE}/users/me/calendarList`),
+    accessToken,
+    'calendarList failed',
+  );
 }
 
-async function listEventsPage(
-  accessToken: string,
-  calendarId: string,
-  timeMin: string,
-  timeMax: string,
-  pageToken: string | null,
-): Promise<{ items?: CalendarEvent[]; nextPageToken?: string }> {
-  const params = new URLSearchParams({
-    timeMin,
-    timeMax,
-    maxResults: '250',
-    singleEvents: 'true',
-    orderBy: 'startTime',
-  });
-  if (pageToken) params.set('pageToken', pageToken);
-
-  const url = `${CAL_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`;
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(
-      `events.list failed (${calendarId}): ${String(resp.status)} ${body}`,
-    );
-  }
-  return (await resp.json()) as {
-    items?: CalendarEvent[];
-    nextPageToken?: string;
-  };
-}
-
+/**
+ * Every event of `calendarId` in `[timeMin, timeMax)` (all pages),
+ * recurring events expanded into instances, ordered by start time.
+ */
 export async function getAllEvents(
   accessToken: string,
   calendarId: string,
   timeMin: string,
   timeMax: string,
 ): Promise<CalendarEvent[]> {
-  const events: CalendarEvent[] = [];
-  let pageToken: string | null = null;
-  do {
-    const page = await listEventsPage(
-      accessToken,
-      calendarId,
-      timeMin,
-      timeMax,
-      pageToken,
-    );
-    if (page.items) events.push(...page.items);
-    pageToken = page.nextPageToken ?? null;
-  } while (pageToken);
-  return events;
+  const url = new URL(
+    `${CAL_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
+  );
+  url.search = new URLSearchParams({
+    timeMin,
+    timeMax,
+    maxResults: '250',
+    singleEvents: 'true',
+    orderBy: 'startTime',
+  }).toString();
+  return listAllPages<CalendarEvent>(
+    url,
+    accessToken,
+    `events.list failed (${calendarId})`,
+  );
 }

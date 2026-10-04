@@ -10,12 +10,14 @@ Shared infrastructure consumed by all domain scripts. This is where instance con
 
 Key exports:
 
-- Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`.
-- GitHub: `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER`, `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
+- Directory paths: `JEEVES_BASE_DIR` (`/opt/jeeves`), `CONFIG_DIR` (`/opt/jeeves/config`), `CONTENT_DIR`, `SCRIPTS_DIR`, `CREDENTIALS_DIR`, `SESSIONS_DIR`, etc. On jeeves-tools-managed instances, `CONTENT_DIR` must be `/opt/jeeves/<contentDir>` (default `/opt/jeeves/content`), the root the watcher indexes and the server serves. The other `/opt/jeeves` paths in `constants/instance.ts` and `constants/integrations.ts` derive from `JEEVES_BASE_DIR` or `CONFIG_DIR`. Pipeline output written anywhere else is not indexed by the watcher or visible in jeeves-server. The template ships `/opt/jeeves/content`; repos created from an older template that used `/opt/jeeves/openclaw/content`, and instances whose config sets a different `contentDir`, must set `CONTENT_DIR` to their content root and commit it.
+- Instance (`constants/instance.ts`): `INSTANCE_NAME`, `PIPELINE_CONFIG_PATH` (`<SCRIPTS_DIR>/pipeline-config.json`), `SILO_ROUTING_CONFIG_PATH` (`<CONFIG_DIR>/silo-routing.json`), `QDRANT_API_URL`, `QDRANT_SERVICE_NAME`
+- GitHub: `GH_BIN`, `GH_CONFIG_DIR` (`<CONFIG_DIR>/gh-cli`), `GH_ACCOUNT`, `GH_BOT_USER` (both empty in the template; set per instance), `GITHUB_DIR`, `GITHUB_REGISTRY_PATH`
 - Google: `GOG_BIN`, `GOG_CONFIG_DIR` (`GOG_HOME` if set, else `/opt/jeeves/config/gogcli`, where jeeves-tools provisions gog), `GOG_CLIENT_PATH` (OAuth client; service-account mailboxes are detected by `gog-credentials.ts` under `<GOG_CONFIG_DIR>/data/` first, then the `<GOG_CONFIG_DIR>` root for older gog builds without `data/`)
-- Email: `EMAIL_EVENTS_DIR`
+- Email: `EMAIL_EVENTS_DIR`, `IMAP_SECRETS_DIR` (`<CREDENTIALS_DIR>/imap`, IMAP password files named by `secretRef`)
 - Slack: `PRIMARY_WORKSPACE`, `SLACK_DOMAIN_DIR`, `SLACK_WORKSPACE_CACHE_PATH`
-- X/Twitter: `X_OAUTH_DIR`, `X_ACCOUNTS`
+- X/Twitter: `X_OAUTH_DIR` (`<CREDENTIALS_DIR>/oauth`), `X_ACCOUNTS` (map of account handle → that account's output directory; empty in the template)
+- Notion: `NOTION_VERSION`, `NOTION_API_KEY_PATH`
 - Meetings: `DEFAULT_MEETINGS_DIR`
 - Gateway: `GATEWAY_HOST`, `GATEWAY_PORT`, `SPAWN_WORKER_PATH`
 - Token metrics: `TOKEN_METRICS_DIR`, `TOKEN_RATES_PATH`, `SESSION_REFRESH_*` thresholds
@@ -28,7 +30,15 @@ Thin wrappers around date-fns. No config dependencies.
 - `dayOfWeek(dateStr)` — full weekday name (e.g., "Monday"). Important because LLMs cannot do day-of-week arithmetic reliably.
 - `formatDate(dateStr, fmt)` — format a date using date-fns pattern
 - `relativeDays(dateStr, referenceStr?)` — human-friendly relative description ("3 days ago", "today")
+- `requireTimeZone(value, source)` — validates a time zone read from instance config; throws (naming `source`) when it is empty or not a valid IANA zone. No default zone
+- `withDateContext(task, now, timeZone)` — prepends `> **Today is <weekday>, <YYYY-MM-DD> (<zone>).** …` to a worker task (used by `dispatchers/daily-digest.ts`)
 - Re-exports `format` and `parseISO` from date-fns
+
+From a shell, run it with `tsx` from the repo root (the repo is TypeScript source with no compiled `.js`, so plain `node -e` importing `./src/lib/dates.js` fails with `ERR_MODULE_NOT_FOUND`):
+
+```bash
+tsx -e "import { dayOfWeek } from './src/lib/dates.ts'; console.log(dayOfWeek('2026-06-01'));"
+```
 
 ### email.ts
 
@@ -63,6 +73,14 @@ Single source of truth for which gog credentials exist. Depends on `GOG_CLIENT_P
 - `detectGogCredentials(configDir?)` — `{ oauthClient, serviceAccount, any }`: OAuth client file present, any `sa-*.json` present
 - `requireGogCredentials(job, accountCount, creds?)` — `false` when `accountCount` is 0 (caller skips), `true` when any credential exists, otherwise throws so the run fails
 
+### imap-secrets.ts
+
+Resolves IMAP passwords. Depends on `IMAP_SECRETS_DIR` (`<CREDENTIALS_DIR>/imap`). Never logs a password or puts one in an error.
+
+- `isSafeSecretRef(ref)` — `true` for a valid secret name, the same rule jeeves-tools uses for instance `secrets`: 1-64 characters, letters, digits, `_` and `-`, starting with a letter or digit (no dots or path separators; used by the pipeline-config schema)
+- `imapSecretPath(ref, dir?)` — `<dir>/<ref>`, throwing on an unsafe ref
+- `resolveImapPassword(password, dir?)` — a literal string as is; `{ secretRef }` read from its file with trailing newlines removed; throws, naming the ref and path, when the file is missing, unreadable or empty
+
 ### gateway-client.ts
 
 Gateway HTTP client for OpenClaw tool invocation. Depends on `GATEWAY_HOST`, `GATEWAY_PORT`.
@@ -79,7 +97,7 @@ Gateway RPC caller for methods that are not HTTP tools, or whose tool wrapper li
 
 ### pipeline-config.ts
 
-Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`.
+Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`. Deprecated forms (`emailConfig.receipt.forwardJGS`, a literal `imap.password` string) still load, each with a one-line `pipeline-config:` warning logged once per process.
 
 - `loadPipelineConfig()` — load and cache config with Zod validation
 - `getRef(key)` — get a ref value by dotted key (e.g., `'notion.socialPostsDatabaseId'`); throws if missing
@@ -163,7 +181,7 @@ Two JSON configuration files control pipeline behavior. Both paths are set via c
 
 ### `pipeline-config.json`
 
-Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts`.
+Location: set via `PIPELINE_CONFIG_PATH` in `constants.ts` (`<SCRIPTS_DIR>/pipeline-config.json`, the repo root). The repo ships `pipeline-config.json.template` as a starting point. `pipeline-config.json` itself is gitignored (per-instance, never committed) and holds no secrets: IMAP passwords are `secretRef`s to files in `IMAP_SECRETS_DIR` (see below).
 
 Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-bucket routing, external service refs, and email behavior.
 
@@ -187,7 +205,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
         "port": 993,
         "tls": true,
         "user": "user@imap.example.com",
-        "password": "..."
+        "password": { "secretRef": "user-imap-example-com" }
       },
       "folders": ["INBOX", "Sent"]
     }
@@ -218,11 +236,15 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 
 **Fields:**
 
-- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. IMAP accounts require an `imap` connection block; `folders` is optional (defaults to all folders for IMAP, standard Gmail folders for gmail).
+- `accounts` — List of email accounts. Each has `email`, `type` (`"gmail"` or `"imap"`), optional `calendar` config, and `emailPolling` toggle. `type: "imap"` requires an `imap` connection block; any account with an `imap` block is polled over IMAP (a `gmail` one with Gmail extensions), the rest through gog. `folders` is optional (IMAP only): without it, `gmail` accounts poll `[Gmail]/All Mail`, `[Gmail]/Spam` and `[Gmail]/Trash`, generic IMAP accounts every folder the server lists. `imap.password` is `{ "secretRef": "<name>" }`: the poller reads the password from `<CREDENTIALS_DIR>/imap/<name>` (`IMAP_SECRETS_DIR`) when it connects, and jeeves-tools provisions that file from the instance config's `secrets` map ([jeeves-tools#178](https://github.com/karmaniverous/jeeves-tools/issues/178)). A literal string is still accepted but deprecated (one warning per process). See [email/](../email/README.md#imap-passwords).
+- `accounts[].calendar` — Either `{ "serviceAccount": "auto" }` (Workspace mailbox via the service-account registration gog keeps for it) or `{ "tokenFile": "<path relative to CREDENTIALS_DIR>" }` (OAuth refresh token; needs the gog OAuth client). See [calendar/](../calendar/README.md#account-configuration).
 - `buckets.domains` — Maps email domains to classification buckets. `pattern` is matched case-insensitively.
 - `buckets.priority` — Ordered bucket names (lower index = higher priority).
-- `refs` — Named references to external service IDs accessed via `getRef('dotted.key')`.
-- `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal) and drain-updates applies none.
+- `refs` — Named references to external service IDs (and other per-instance values, such as the daily digest's IANA time zone `digest.timezone`) accessed via `getRef('dotted.key')`.
+
+  **Finding the refs an instance needs.** Every ref is read in code with `getRef('…')` (throws when missing) or `tryGetRef('…')` (empty string when missing), either with a literal key or through a `*_REF` constant (e.g. `DIGEST_TIMEZONE_REF = 'digest.timezone'`), so the set of refs is whatever this repo's scripts ask for. List them from the repo root with `grep -rhoE "(try)?[gG]etRef\('[^']+'\)|[A-Z_]+_REF = '[^']+'" src --include='*.ts' --exclude='*.test.ts' | sort -u`, then set a value for each under `refs` (dotted keys become nested objects). Keep the convention when adding a ref: a literal key or a `*_REF` constant, so this list stays complete. Refs are per-instance IDs and settings (Notion database IDs, Slack channel IDs, `digest.timezone`); there are no defaults, and they are not secrets (secrets go in `imap.password` `secretRef` files).
+
+- `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal), meetings-extract enqueues no `meeting` label or archive, and drain-updates applies none. Skipped actions are dropped, not deferred (see [email/](../email/README.md#prerequisites)).
 - `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@example.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`. Backfill accounts are included in `getGmailAccounts()`, so `email-download` and `email-drain-updates` consume what backfill queues even for accounts that are not polled.
 - `emailConfig.receipt` — Receipt forwarding settings: `forwardEnabled` (boolean, whether detected receipts are forwarded) and `sparkReceiptsForwardTo` (the address they go to). No script in this template reads these yet; they are validated so instance scripts can rely on them.
 - `buckets` — bucket names (from `buckets.priority` and `buckets.domains[].bucket`, see `getBucketNames()`) are also the Gmail labels the classification and backfill scripts apply. No bucket name is hard-coded in code.

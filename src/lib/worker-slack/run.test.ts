@@ -39,7 +39,7 @@ import { dispatchWithSlack } from './run.js';
 import type { WorkerSlackDeps } from './worker-slack-job.js';
 
 const OPTIONS = { jobId: 'acme-ops-agenda' };
-const SLACK = { accountId: 'vc', posts: [] };
+const SLACK = { accountId: 'acct-b', posts: [] };
 const FAKE_IO = { read: vi.fn(), send: vi.fn(), pin: vi.fn(), edit: vi.fn() };
 
 /** Run the adapter and return the deps it handed to runWorkerSlackJob. */
@@ -67,7 +67,7 @@ describe('dispatchWithSlack', () => {
     const deps = await depsFor(['node', 'job.ts', '--dry-run', '--print-task']);
     expect(mocks.gatewaySlackIo).toHaveBeenCalledWith(
       mocks.gatewayInvoke,
-      'vc',
+      'acct-b',
     );
     expect(deps.slack).toBe(FAKE_IO);
     expect(deps.dryRun).toBe(true);
@@ -123,7 +123,7 @@ describe('dispatchWithSlack', () => {
   });
 
   it.each([
-    ['a bad account id', { accountId: 'vc; rm -rf', posts: [] }],
+    ['a bad account id', { accountId: 'acct-b; rm -rf', posts: [] }],
     [
       'a zero read limit',
       { reads: [{ target: 'C000EXAMPLE1', label: 'x', limit: 0 }] },

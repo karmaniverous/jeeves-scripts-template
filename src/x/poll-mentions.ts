@@ -2,7 +2,8 @@
 /**
  * @module poll-mentions
  *
- * Polls mentions for an account via X API v2.
+ * Polls mentions via X API v2 for every handle in X_ACCOUNTS, or only the
+ * handle given as the first argument.
  *
  * Entry-point script invoked by the runner scheduler. Delegates to
  * poll-x-items with the pollUserMentions API function, enqueuing results

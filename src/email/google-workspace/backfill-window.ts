@@ -33,9 +33,8 @@ import type { BackfillSettings } from './backfill-settings.js';
 import { fetchThreadMetadata } from './email-fetch.js';
 import {
   classifyBucket,
+  classifyCandidates,
   computeLabelsToApply,
-  isJunkCandidate,
-  isReceiptCandidate,
 } from './email-triage.js';
 import {
   type GogRunner,
@@ -136,8 +135,10 @@ function processNewThread(
   result: BackfillAccountResult,
 ): void {
   const { client, live, reportOnly } = deps;
-  const rc = isReceiptCandidate(t.subject, t.snippet, t.from, account);
-  const jc = !rc && isJunkCandidate(t.subject, t.snippet, t.from);
+  const { receiptCandidate: rc, junkCandidate: jc } = classifyCandidates(
+    t,
+    account,
+  );
   const bucket = classifyBucket(account, t.to, t.subject, t.snippet, t.from);
   const labelsToApply = computeLabelsToApply({
     receiptCandidate: rc,

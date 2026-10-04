@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWorkerSlackConfig } from './worker-slack-config.js';
 
 const VALID = {
-  accountId: 'vc',
+  accountId: 'acct-b',
   reads: [
     { target: 'C000EXAMPLE1', label: '#ops-ceo', limit: 50 },
     { target: 'channel:D0ABCDEFGH', label: 'DM', threadTs: '1790.1' },

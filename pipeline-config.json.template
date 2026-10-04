@@ -1,5 +1,18 @@
 {
-  "_comment": "Seeded on first deploy by jeeves-tools --scope scripts. Edit this file to configure accounts, buckets, and refs. Secrets (IMAP passwords, etc.) must NOT be stored here — use the S3 secrets path and reference them at runtime. See pipeline-config.ts for full schema. emailConfig fields are required: fill in sparkReceiptsForwardTo (email address) and digest.slackChannelId before going live. Optional emailConfig.backfill { accounts, lookbackDays, windowDays } (all required when present; no defaults) enables the email-backfill-historical job.",
+  "_comment": "Seeded on first deploy by jeeves-tools --scope scripts. Edit this file to configure accounts, buckets, and refs; it is gitignored and must hold no secrets. IMAP passwords: set imap.password to { \"secretRef\": \"<name>\" } (see _imapAccountExample, which is ignored at runtime) and put the password in /opt/jeeves/config/credentials/imap/<name> (IMAP_SECRETS_DIR). On jeeves-tools-managed instances, deploy writes that file (owner jeeves, mode 0600) from the instance config's secrets map entry <name>; on standalone instances create it by hand. A plain-string imap.password still works but is deprecated. See src/lib/pipeline-config.ts for the full schema. emailConfig fields are required: fill in sparkReceiptsForwardTo (email address) and digest.slackChannelId before going live. Optional emailConfig.backfill { accounts, lookbackDays, windowDays } (all required when present; no defaults) enables the email-backfill-historical job.",
+  "_imapAccountExample": {
+    "email": "user@example.com",
+    "type": "imap",
+    "emailPolling": true,
+    "imap": {
+      "host": "imap.example.com",
+      "port": 993,
+      "tls": true,
+      "user": "user@example.com",
+      "password": { "secretRef": "user-example-com" }
+    },
+    "folders": ["INBOX"]
+  },
   "accounts": [],
   "buckets": {
     "domains": [],

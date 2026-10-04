@@ -8,6 +8,12 @@
  * account (via {@link getEmailAccounts}), reads cached threads from the account
  * silo (via {@link getEmailBaseForAccount}), detects meetings, extracts
  * participants and Gemini doc links, and writes per-meeting package directories.
+ *
+ * For each new meeting it enqueues the `meeting` label (and an archive when
+ * the message is in the inbox and not `watch`ed) on `email-updates` through
+ * label-actions, so nothing is enqueued when `emailConfig.reportOnly` is
+ * true. Those actions are dropped, not deferred: the thread is still marked
+ * processed, so they are not enqueued after reportOnly is turned off.
  */
 
 import fs from 'node:fs';
@@ -17,7 +23,10 @@ import { nowIso, readJson, runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
 import { getThreadsPath } from '../email/email-cache.js';
-import { getEmailAccounts } from '../lib/pipeline-config.js';
+import {
+  getEmailAccounts,
+  loadPipelineConfig,
+} from '../lib/pipeline-config.js';
 import { getEmailBaseForAccount } from '../lib/silo-router.js';
 import {
   detectFathomFromBodies,
@@ -29,6 +38,7 @@ import {
   normalizeMeetingTitle,
   parseDateToYmd,
 } from './lib/detect.js';
+import { enqueueMeetingEmailActions } from './lib/email-actions.js';
 
 /** Check whether an archived message body contains a Fathom URL. */
 function hasFathomUrlInBody(
@@ -186,8 +196,10 @@ function loadArchiveMessage(
 
 function main(): void {
   let accounts: string[];
+  let reportOnly: boolean;
   try {
     accounts = getEmailAccounts();
+    reportOnly = loadPipelineConfig().emailConfig.reportOnly;
   } catch {
     console.log(
       '[skip] Meeting extraction not configured \u2014 pipeline-config.json missing or invalid',
@@ -201,6 +213,9 @@ function main(): void {
     );
     return;
   }
+
+  if (reportOnly)
+    console.log('[meetings] reportOnly: no Gmail label actions enqueued');
 
   const client = getRunnerClient();
 
@@ -310,30 +325,8 @@ function main(): void {
           );
           added++;
 
-          // Queue label update
-          client.enqueue('email-updates', {
-            account,
-            threadId: c.threadId,
-            messageId: c.messageId,
-            action: 'addLabel',
-            label: 'meeting',
-            source: 'extract-email-meetings',
-            createdAt: nowIso(),
-          });
-          queued++;
-
-          // Queue archive if in inbox
-          if (c.labels.includes('INBOX')) {
-            client.enqueue('email-updates', {
-              account,
-              threadId: c.threadId,
-              messageId: c.messageId,
-              action: 'archive',
-              source: 'extract-email-meetings',
-              createdAt: nowIso(),
-            });
-            queued++;
-          }
+          // `meeting` label (+ archive if in inbox, not watched), gated on reportOnly
+          queued += enqueueMeetingEmailActions(client, c, reportOnly);
         } else {
           skipped++;
         }

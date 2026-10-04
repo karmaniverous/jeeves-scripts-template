@@ -48,6 +48,38 @@ export function isJunkCandidate(
   );
 }
 
+/** Receipt and junk flags of a message (see {@link classifyCandidates}). */
+export interface CandidateFlags {
+  receiptCandidate: boolean;
+  junkCandidate: boolean;
+}
+
+/**
+ * Receipt and junk flags of a message, the one rule every classifying path
+ * (poll, backfill-historical, backfill-classification) uses: a receipt
+ * candidate is never a junk candidate.
+ *
+ * @param msg - Subject, snippet and sender of the message.
+ * @param account - Polled account (mail from it is never a receipt).
+ * @param stored - Flags already stored for the thread; a stored flag is
+ *   kept instead of being recomputed, and junk is still cleared on a
+ *   receipt.
+ */
+export function classifyCandidates(
+  msg: { subject: string; snippet: string; from: string },
+  account: string,
+  stored: Partial<CandidateFlags> = {},
+): CandidateFlags {
+  const { subject, snippet, from } = msg;
+  const receiptCandidate =
+    stored.receiptCandidate ??
+    isReceiptCandidate(subject, snippet, from, account);
+  const junkCandidate =
+    !receiptCandidate &&
+    (stored.junkCandidate ?? isJunkCandidate(subject, snippet, from));
+  return { receiptCandidate, junkCandidate };
+}
+
 /** Extract unique domains from a raw TO header string. */
 function extractDomains(to: string): string[] {
   const seen = new Set<string>();

@@ -36,10 +36,25 @@ flowchart LR
 - **poll-collabs** / **drain-collabs** manage bot access across repos, switching between primary account and bot user as needed.
 - **watch** tracks notification state per user and detects important reasons (review_requested, mention, etc.).
 
+## State and Queues
+
+| Where | What |
+| --- | --- |
+| `GITHUB_REGISTRY_PATH` (`{CONTENT_DIR}/github/registry.json`) | Repo registry written by `build-registry`; the repos the sync jobs track |
+| Runner state items `github` / `repos-sync`, `github` / `issues-sync` | Per-repo round-robin state (least recently synced first) |
+| Runner state `github`, key `watch-<user>` | Notification cursor per user |
+| Runner state `gh-collabs`, key `poll-state` | `poll-collabs` progress |
+| Queue `gh-collabs` | Collaborator additions / invitation acceptances for `drain-collabs` |
+| Queue `github-escalations` | Important or stale notifications found by `watch` |
+
 ## Prerequisites
 
-- GitHub CLI authenticated (`gh auth login`) for both `GH_ACCOUNT` and `GH_BOT_USER`
-- `GH_BIN`, `GH_CONFIG_DIR`, `GH_ACCOUNT`, `GH_BOT_USER` set in `constants.ts`
+- `GH_ACCOUNT` (primary account) and `GH_BOT_USER` (bot) set in `constants.ts` (`src/lib/constants/integrations.ts`); both are empty in the template. The scripts switch between them with `gh auth switch -u <user>`, so `gh` must hold a login for each.
+- `GH_CONFIG_DIR` (`/opt/jeeves/config/gh-cli`): every GitHub script sets the `GH_CONFIG_DIR` environment variable to it (`setupGhConfig()`) before calling `gh`, so the logins must live there. The jobs skip (`[skip]`, exit 0) when the directory does not exist; `build-registry` also skips when `GH_ACCOUNT` is empty.
+- `GH_BIN` (`gh`, resolved through `PATH`).
+- The sync jobs only process repos in the registry, so `github-build-registry` must have run.
+
+All entries in `jobs/github.json` carry a non-null `prerequisite` (GitHub CLI auth).
 
 | Job                     | Schedule           |
 | ----------------------- | ------------------ |

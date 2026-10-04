@@ -2,7 +2,8 @@
 /**
  * @module poll-posts
  *
- * Polls an account's own posts via X API v2.
+ * Polls each account's own posts via X API v2: every handle in
+ * X_ACCOUNTS, or only the handle given as the first argument.
  *
  * Entry-point script invoked by the runner scheduler. Delegates to
  * poll-x-items with the pollUserTweets API function, enqueuing results

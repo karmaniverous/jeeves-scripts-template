@@ -1,0 +1,103 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { CREDENTIALS_DIR } from './constants.js';
+import {
+  imapSecretPath,
+  isSafeSecretRef,
+  resolveImapPassword,
+} from './imap-secrets.js';
+
+let dir: string;
+
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'imap-secrets-'));
+});
+
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe('isSafeSecretRef', () => {
+  it.each(['carol', 'mail-example-com', 'acct_1-prod', 'a'.repeat(64)])(
+    'accepts %s',
+    (ref) => {
+      expect(isSafeSecretRef(ref)).toBe(true);
+    },
+  );
+
+  // Same rule as jeeves-tools secret names: no dots, at most 64 characters.
+  it.each([
+    '',
+    '.',
+    '..',
+    'a/b',
+    'a\\b',
+    '../x',
+    'a..b',
+    '.env',
+    'a b',
+    'mail.example.com',
+    '_lead',
+    'a'.repeat(65),
+  ])('rejects %j', (ref) => {
+    expect(isSafeSecretRef(ref)).toBe(false);
+  });
+});
+
+describe('imapSecretPath', () => {
+  it('defaults to <CREDENTIALS_DIR>/imap/<ref>', () => {
+    expect(imapSecretPath('carol')).toBe(
+      path.join(CREDENTIALS_DIR, 'imap', 'carol'),
+    );
+  });
+
+  it('throws on an unsafe ref', () => {
+    expect(() => imapSecretPath('../etc/passwd', dir)).toThrow(
+      /IMAP secretRef "\.\.\/etc\/passwd": secretRef must be a plain file name/,
+    );
+  });
+});
+
+describe('resolveImapPassword', () => {
+  it('returns a literal string unchanged', () => {
+    expect(resolveImapPassword('literal', dir)).toBe('literal');
+  });
+
+  it('reads the secret file and trims trailing newlines', () => {
+    fs.writeFileSync(path.join(dir, 'carol'), 'pa ss\r\n\n');
+    expect(resolveImapPassword({ secretRef: 'carol' }, dir)).toBe('pa ss');
+  });
+
+  it('keeps a value without a trailing newline as is', () => {
+    fs.writeFileSync(path.join(dir, 'carol'), ' x ');
+    expect(resolveImapPassword({ secretRef: 'carol' }, dir)).toBe(' x ');
+  });
+
+  it('names the ref and path when the file is missing', () => {
+    const file = path.join(dir, 'missing');
+    expect(() => resolveImapPassword({ secretRef: 'missing' }, dir)).toThrow(
+      `IMAP secret "missing" could not be read from ${file} (ENOENT).`,
+    );
+  });
+
+  it('refuses an empty secret file without echoing content', () => {
+    fs.writeFileSync(path.join(dir, 'blank'), '\n');
+    expect(() => resolveImapPassword({ secretRef: 'blank' }, dir)).toThrow(
+      /IMAP secret "blank" at .* is empty\./,
+    );
+  });
+
+  it('never reads a file outside the secrets directory', () => {
+    // A readable file one level up: a path-joining resolver would return it.
+    const secrets = path.join(dir, 'imap');
+    fs.mkdirSync(secrets);
+    fs.writeFileSync(path.join(dir, 'outside'), 'stolen');
+    expect(() =>
+      resolveImapPassword({ secretRef: '../outside' }, secrets),
+    ).toThrow(/plain file name/);
+  });
+});

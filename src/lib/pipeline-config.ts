@@ -21,16 +21,50 @@ import fs from 'node:fs';
 
 import { z } from 'zod';
 
-import { PIPELINE_CONFIG_PATH } from './constants.js';
+import { IMAP_SECRETS_DIR, PIPELINE_CONFIG_PATH } from './constants.js';
+import { isSafeSecretRef, UNSAFE_SECRET_REF_MESSAGE } from './imap-secrets.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────
+
+const warnedDeprecations = new Set<string>();
+
+/**
+ * Log a one-line `pipeline-config:` deprecation warning, at most once per
+ * process for each message (cleared by {@link resetPipelineConfig}).
+ */
+function warnDeprecated(message: string): void {
+  if (warnedDeprecations.has(message)) return;
+  warnedDeprecations.add(message);
+  console.warn(`pipeline-config: ${message}`);
+}
+
+/** Deprecation warning for a literal `imap.password` (never the value). */
+const PLAIN_IMAP_PASSWORD_WARNING = `accounts[].imap.password as a plain string is deprecated; put the password in a file in ${IMAP_SECRETS_DIR} and set imap.password to { "secretRef": "<file name>" }.`;
+
+/**
+ * `imap.password`: `{ secretRef }` naming a file in IMAP_SECRETS_DIR
+ * (read at connect time by lib/imap-secrets.ts), or a literal string
+ * (deprecated; accepted with a once-per-process warning).
+ */
+const ImapPasswordSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'string') warnDeprecated(PLAIN_IMAP_PASSWORD_WARNING);
+    return value;
+  },
+  z.union([
+    z.string(),
+    z.strictObject({
+      secretRef: z.string().refine(isSafeSecretRef, UNSAFE_SECRET_REF_MESSAGE),
+    }),
+  ]),
+);
 
 const ImapConnectionSchema = z.object({
   host: z.string(),
   port: z.number(),
   tls: z.boolean(),
   user: z.string(),
-  password: z.string(),
+  password: ImapPasswordSchema,
 });
 
 const CalendarConfigSchema = z.union([
@@ -74,8 +108,7 @@ const LEGACY_RECEIPT_FORWARD_KEY = 'forwardJGS';
  * Map the deprecated `receipt.forwardJGS` key to `forwardEnabled` so
  * existing pipeline-config.json files keep loading. When both are
  * present, `forwardEnabled` wins and the legacy key is ignored. Either
- * way a one-line deprecation warning is logged (once per process,
- * because the loaded config is cached).
+ * way a one-line deprecation warning is logged (once per process).
  */
 function migrateReceiptConfig(raw: unknown): unknown {
   if (
@@ -89,13 +122,13 @@ function migrateReceiptConfig(raw: unknown): unknown {
     unknown
   >;
   if ('forwardEnabled' in rest) {
-    console.warn(
-      `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated and ignored because forwardEnabled is set; remove it.`,
+    warnDeprecated(
+      `emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated and ignored because forwardEnabled is set; remove it.`,
     );
     return rest;
   }
-  console.warn(
-    `pipeline-config: emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated; rename it to forwardEnabled.`,
+  warnDeprecated(
+    `emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated; rename it to forwardEnabled.`,
   );
   return { ...rest, forwardEnabled: legacy };
 }
@@ -167,6 +200,7 @@ export function loadPipelineConfig(): PipelineConfig {
 /** Reset cached config (for testing). */
 export function resetPipelineConfig(): void {
   _config = null;
+  warnedDeprecations.clear();
   _bucketPriorityCache = null;
 }
 

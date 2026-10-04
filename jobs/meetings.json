@@ -4,7 +4,7 @@
     "name": "Meetings Extract",
     "script": "src/meetings/extract.ts",
     "schedule": { "freq": "minutely", "interval": 13, "timezone": "UTC" },
-    "description": "Scan email cache for meeting-related threads and extract structured meeting packages.",
+    "description": "Scan email cache for meeting-related threads and extract structured meeting packages. For each new meeting, enqueues the Gmail meeting label (and an archive if in the inbox and not watched) on email-updates; nothing when emailConfig.reportOnly is true.",
     "overlap_policy": "skip",
     "timeout_seconds": 600,
     "enabled": true,

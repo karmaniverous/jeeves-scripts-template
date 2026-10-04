@@ -2,7 +2,8 @@
 /**
  * @module poll-likes
  *
- * Polls liked tweets for an account via X API v2.
+ * Polls liked tweets via X API v2 for every handle in X_ACCOUNTS, or only the
+ * handle given as the first argument.
  *
  * Entry-point script invoked by the runner scheduler. Delegates to
  * poll-x-items with the pollLikedTweets API function, enqueuing results

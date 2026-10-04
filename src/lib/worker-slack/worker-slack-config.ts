@@ -57,7 +57,7 @@ const slackPostTargetSchema = z
 /** Slack configuration for one job. */
 const workerSlackConfigSchema = z
   .object({
-    /** Gateway Slack account id (multi-account gateways, e.g. `vc`). */
+    /** Gateway Slack account id (multi-account gateways, e.g. `<account-id>`). */
     accountId: z
       .string()
       .regex(/^[A-Za-z0-9_-]{1,64}$/)

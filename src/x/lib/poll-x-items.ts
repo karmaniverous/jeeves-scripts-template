@@ -8,7 +8,10 @@
  * jeeves-runner queue for downstream processing by drain-queues.
  *
  * With no handle argument every handle in `X_ACCOUNTS` is polled (see
- * poll-handles.ts); `<handle>` narrows the run to one handle.
+ * poll-handles.ts); `<handle>` narrows the run to one handle. Options
+ * (`--count N`, `--queue NAME`) follow the handle, or stand alone.
+ * `--queue` overrides the queue name for every polled handle, so give it
+ * together with a handle.
  */
 
 import fs from 'node:fs';
@@ -19,7 +22,11 @@ import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 import type { Client } from '@xdevplatform/xdk';
 
 import { X_ACCOUNTS } from '../../lib/constants.js';
-import { logPollHandles, resolvePollHandles } from './poll-handles.js';
+import {
+  handleArg,
+  logPollHandles,
+  resolvePollHandles,
+} from './poll-handles.js';
 import type { PollOptions, XTweet } from './x-api.js';
 import { getOAuthPath, withAutoRefresh } from './x-api.js';
 
@@ -100,13 +107,13 @@ export async function pollXItems(
 }
 
 /**
- * Handles this run polls: the first CLI argument if given, else every
- * handle in `X_ACCOUNTS`; only handles with an OAuth file. Logs a
- * `[skip]` line for each handle left out.
+ * Handles this run polls: the handle argument if given ({@link handleArg}),
+ * else every handle in `X_ACCOUNTS`; only handles with an OAuth file.
+ * Logs a `[skip]` line for each handle left out.
  */
 export function pollHandlesFromArgv(): string[] {
   return logPollHandles(
-    resolvePollHandles(process.argv[2], X_ACCOUNTS, (h) =>
+    resolvePollHandles(handleArg(process.argv.slice(2)), X_ACCOUNTS, (h) =>
       fs.existsSync(getOAuthPath(h)),
     ),
   );

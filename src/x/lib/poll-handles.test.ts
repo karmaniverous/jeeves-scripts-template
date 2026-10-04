@@ -1,9 +1,32 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { logPollHandles, resolvePollHandles } from './poll-handles.js';
+import {
+  handleArg,
+  logPollHandles,
+  resolvePollHandles,
+} from './poll-handles.js';
 
 const accounts = { alice: '/data/x/alice', bob: '/data/x/bob' };
 const all = () => true;
+
+describe('handleArg', () => {
+  it('takes a leading handle, ignoring the options after it', () => {
+    expect(handleArg(['bob', '--count', '10'])).toBe('bob');
+  });
+
+  it.each([[[]], [['--count', '10']], [['--queue', 'q']], [['-x']]])(
+    'finds no handle in %j',
+    (args) => {
+      expect(handleArg(args)).toBeUndefined();
+    },
+  );
+
+  it('polls every handle when the arguments are options only', () => {
+    expect(
+      resolvePollHandles(handleArg(['--count', '10']), accounts, all),
+    ).toEqual({ handles: ['alice', 'bob'], skipped: [] });
+  });
+});
 
 describe('resolvePollHandles', () => {
   it('polls every configured handle when no handle is given', () => {

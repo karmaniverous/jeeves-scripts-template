@@ -11,6 +11,9 @@
  * handle is polled only when it is in `X_ACCOUNTS` (otherwise its items
  * would never be drained) and its OAuth file exists; every other handle
  * is reported as skipped with the reason.
+ *
+ * Only a first argument that is not an option is a handle, so
+ * `poll-posts.ts --count 10` polls every handle with `--count 10`.
  */
 
 /** A handle that will not be polled, and why. */
@@ -30,9 +33,20 @@ export interface PollHandles {
 }
 
 /**
+ * The handle argument of a poll script: its first argument, unless that
+ * is an option (starts with `-`) or absent.
+ *
+ * @param args - Script arguments (`process.argv.slice(2)`).
+ */
+export function handleArg(args: readonly string[]): string | undefined {
+  const first = args.at(0);
+  return first && !first.startsWith('-') ? first : undefined;
+}
+
+/**
  * Resolve the handles to poll.
  *
- * @param argHandle - First CLI argument, if any.
+ * @param argHandle - Handle argument, if any ({@link handleArg}).
  * @param accounts - `X_ACCOUNTS` (handle → output directory).
  * @param hasOAuth - Whether a handle's OAuth file exists.
  */

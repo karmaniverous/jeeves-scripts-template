@@ -59,7 +59,7 @@ All entries in `jobs/x.json` carry a non-null `prerequisite` (`X_ACCOUNTS` plus 
 
 **Handles come from `X_ACCOUNTS`, the one list of the instance's X accounts.** The manifest entries pass no arguments, so as registered:
 
-- each poll script (`poll-posts`, `poll-mentions`, `poll-feed`, `poll-likes`, `poll-bookmarks`) polls every handle in `X_ACCOUNTS`, one after another (`lib/poll-handles.ts`). A handle argument (`tsx src/x/poll-posts.ts <handle>`) narrows a run to that handle.
+- each poll script (`poll-posts`, `poll-mentions`, `poll-feed`, `poll-likes`, `poll-bookmarks`) polls every handle in `X_ACCOUNTS`, one after another (`lib/poll-handles.ts`). A handle argument (`tsx src/x/poll-posts.ts <handle>`) narrows a run to that handle. Only a first argument that is not an option is a handle: options (`--count N`, `--queue NAME`) follow the handle or stand alone, so `tsx src/x/poll-posts.ts --count 10` polls every handle. `--queue` replaces the queue name for every handle polled, so give it with a handle.
 - a handle is polled only if it is in `X_ACCOUNTS` (otherwise `drain-queues` would never drain its items) and its OAuth file exists; any other handle is logged as `[skip] @<handle>: <reason>`. With `X_ACCOUNTS` empty (the template default) the job logs `[skip]` and exits 0.
 - an API error for one handle is logged and the next handle is still polled. `poll-feed` then fails the run; the queue pollers log the error and exit 0.
 - `drain-queues` iterates over every handle in `X_ACCOUNTS`.

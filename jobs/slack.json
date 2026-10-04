@@ -9,6 +9,6 @@
     "timeout_seconds": 300,
     "enabled": true,
     "domain": "slack",
-    "prerequisite": "Slack bot token configured in pipeline-config.json"
+    "prerequisite": "Slack bot token: SLACK_BOT_TOKEN in the job environment, else channels.slack.accounts.<name>.botToken (or channels.slack.botToken) in ~/.openclaw/openclaw.json (see slack/README.md#bot-tokens)"
   }
 ]

@@ -62,7 +62,7 @@ No config file, or no token in it, fails the run. Each channel is read with the 
 | ------------ | ------------ | ----------------- |
 | `slack-poll` | Every 11 min | `jobs/slack.json` |
 
-The manifest entry carries a non-null `prerequisite`. Its text says the token is in `pipeline-config.json`; it is not (see [Bot Tokens](#bot-tokens)).
+The manifest entry carries a non-null `prerequisite` naming the token sources in [Bot Tokens](#bot-tokens).
 
 ## Key Files
 

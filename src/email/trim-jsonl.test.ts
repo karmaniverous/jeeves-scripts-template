@@ -29,7 +29,7 @@ function write(name: string, lines: string[]): string {
 
 describe('trimJsonlFiles', () => {
   it('drops lines older than maxDays and keeps newer and unparseable lines', () => {
-    const p = write('me@example.com.jsonl', [
+    const p = write('account.jsonl', [
       line(10),
       line(6),
       'not json',
@@ -50,7 +50,7 @@ describe('trimJsonlFiles', () => {
   });
 
   it('never trims _runs-* logs or non-jsonl files', () => {
-    const runs = write('_runs-me@example.com.jsonl', [line(30)]);
+    const runs = write('_runs-account.jsonl', [line(30)]);
     const other = write('notes.txt', [line(30)]);
     trimJsonlFiles(dir, 7, NOW);
     expect(fs.readFileSync(runs, 'utf8')).toBe(line(30) + '\n');

@@ -21,6 +21,8 @@ import fs from 'node:fs';
 
 import { z } from 'zod';
 
+import type { SyncEntryConfig } from '../google-drive/lib/config.js';
+import { GoogleDriveConfigSchema } from '../google-drive/lib/config.js';
 import { IMAP_SECRETS_DIR, PIPELINE_CONFIG_PATH } from './constants.js';
 import { isSafeSecretRef, UNSAFE_SECRET_REF_MESSAGE } from './imap-secrets.js';
 
@@ -173,6 +175,8 @@ const PipelineConfigSchema = z.object({
   buckets: BucketsSchema,
   refs: z.record(z.string(), z.string()),
   emailConfig: EmailConfigSchema,
+  /** Google Drive sync (docs/google-drive-spec.md §8). Absent → the job skips. */
+  googleDrive: GoogleDriveConfigSchema.optional(),
 });
 
 // ── Derived types ───────────────────────────────────────────────────
@@ -183,6 +187,15 @@ export type ImapConnection = z.infer<typeof ImapConnectionSchema>;
 export type BucketsConfig = z.infer<typeof BucketsSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
 export type BackfillConfig = z.infer<typeof BackfillConfigSchema>;
+export type {
+  GoogleDriveConfig,
+  SyncEntryConfig,
+} from '../google-drive/lib/config.js';
+
+/** Configured Google Drive syncs, or `[]` when the block is absent. */
+export function getGoogleDriveSyncs(): SyncEntryConfig[] {
+  return loadPipelineConfig().googleDrive?.syncs ?? [];
+}
 
 // ── Cached loader ───────────────────────────────────────────────────
 

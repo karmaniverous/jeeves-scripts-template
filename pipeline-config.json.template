@@ -9,9 +9,13 @@
       "port": 993,
       "tls": true,
       "user": "user@example.com",
-      "password": { "secretRef": "user-example-com" }
+      "password": {
+        "secretRef": "user-example-com"
+      }
     },
-    "folders": ["INBOX"]
+    "folders": [
+      "INBOX"
+    ]
   },
   "accounts": [],
   "buckets": {
@@ -28,5 +32,28 @@
     "digest": {
       "slackChannelId": ""
     }
+  },
+  "_googleDriveExample": {
+    "_comment": "Optional and ignored at runtime under this name: rename the key to googleDrive to enable the sync. Google Drive sync (src/google-drive/README.md). Mirrors items shared to each account into CONTENT_DIR/<targetDir>. Only 'account' and 'pathResolution.domains' need setting; everything else has defaults.",
+    "syncs": [
+      {
+        "account": "assistant@example.com",
+        "targetDir": "google-drive",
+        "pathResolution": {
+          "impersonate": true,
+          "domains": [
+            "example.com"
+          ],
+          "sharedDriveFallbackIdentity": null
+        },
+        "exclude": [],
+        "budget": {
+          "maxSeconds": 360,
+          "maxItems": null,
+          "maxBytes": null,
+          "maxAttempts": 5
+        }
+      }
+    ]
   }
 }

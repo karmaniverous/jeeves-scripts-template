@@ -108,6 +108,7 @@ Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`. 
 - `getGmailAccounts()` — gog-served addresses, deduplicated: `emailPolling` accounts without an `imap` block plus `emailConfig.backfill.accounts`
 - `getBucketForDomain(domain)` — match email domain to classification bucket
 - `getBucketPriority()` — bucket name to priority index mapping
+- `getGoogleDriveSyncs()` — entries of the optional `googleDrive.syncs` block (empty when absent); schema in `src/google-drive/lib/config.ts`
 
 ### silo-router.ts
 
@@ -247,6 +248,7 @@ Loaded and validated by `pipeline-config.ts`. Configures accounts, domain-to-buc
 - `emailConfig.reportOnly` — When `true`, email is still ingested but no Gmail mutations happen: poll and backfill-historical enqueue no label actions (classification or curation-signal), meetings-extract enqueues no `meeting` label or archive, and drain-updates applies none. Skipped actions are dropped, not deferred (see [email/](../email/README.md#prerequisites)).
 - `emailConfig.backfill` (optional) — Paced historical Gmail backfill (`email-backfill-historical` job): `{ "accounts": ["me@example.com"], "lookbackDays": 90, "windowDays": 7 }`. All three fields are required when the block is present; there are no defaults. Each run searches one `windowDays` window per account, walking back until `lookbackDays`, then no-ops. Values can be overridden with `--accounts`, `--lookback-days`, `--window-days`. Backfill accounts are included in `getGmailAccounts()`, so `email-download` and `email-drain-updates` consume what backfill queues even for accounts that are not polled.
 - `emailConfig.receipt` — Receipt forwarding settings: `forwardEnabled` (boolean, whether detected receipts are forwarded) and `sparkReceiptsForwardTo` (the address they go to). No script in this template reads these yet; they are validated so instance scripts can rely on them.
+- `googleDrive` (optional) — Google Drive sync entries (`syncs[]`: `account`, `targetDir`, `pathResolution.domains`, …). Fully documented in [google-drive/](../google-drive/README.md#configuration).
 - `buckets` — bucket names (from `buckets.priority` and `buckets.domains[].bucket`, see `getBucketNames()`) are also the Gmail labels the classification and backfill scripts apply. No bucket name is hard-coded in code.
 
 **Migration: `emailConfig.receipt.forwardJGS` → `forwardEnabled`.** The old key is still accepted as a deprecated alias: at load time it is mapped to `forwardEnabled` and a one-line warning is logged (`pipeline-config: emailConfig.receipt.forwardJGS is deprecated; rename it to forwardEnabled.`). If both keys are present, `forwardEnabled` wins, the old key is ignored, and the warning says so. Rename the key in your `pipeline-config.json` to silence the warning; the alias will be removed in a future release.

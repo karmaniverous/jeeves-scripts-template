@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertNoSymlinks,
@@ -10,6 +10,7 @@ import {
   moveFile,
   prepareStaging,
   pruneDirs,
+  renameWithRetry,
   safeJoin,
   scanTree,
   subtreeHasFile,
@@ -116,5 +117,56 @@ describe('frontmatter', () => {
     expect(out).toMatch(/^---\nsource: "google-drive"\ndriveFileId: "x"/);
     expect(out).toContain('drivePath: "o@example.com / a \\"b\\""');
     expect(out.endsWith('body\n')).toBe(true);
+  });
+});
+
+describe('renameWithRetry (Windows sharing violations)', () => {
+  const busy = (code: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(code), { code });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('retries transient EPERM/EBUSY, then renames', () => {
+    put('a', 'A');
+    const real = fs.renameSync.bind(fs);
+    let calls = 0;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      calls++;
+      if (calls <= 2) throw busy(calls === 1 ? 'EPERM' : 'EBUSY');
+      real(from, to);
+    });
+    renameWithRetry(path.join(root, 'a'), path.join(root, 'b'), {
+      retry: true,
+      baseMs: 1,
+    });
+    expect(calls).toBe(3);
+    expect(fs.readFileSync(path.join(root, 'b'), 'utf8')).toBe('A');
+  });
+
+  it('throws at once without retry (POSIX), on other errors, or after the last attempt', () => {
+    const spy = vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      throw busy('EPERM');
+    });
+    expect(() => {
+      renameWithRetry('x', 'y', { retry: false });
+    }).toThrow('EPERM');
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    spy.mockClear();
+    expect(() => {
+      renameWithRetry('x', 'y', { retry: true, attempts: 3, baseMs: 1 });
+    }).toThrow('EPERM');
+    expect(spy).toHaveBeenCalledTimes(3);
+
+    spy.mockClear();
+    spy.mockImplementation(() => {
+      throw busy('ENOENT');
+    });
+    expect(() => {
+      renameWithRetry('x', 'y', { retry: true, baseMs: 1 });
+    }).toThrow('ENOENT');
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

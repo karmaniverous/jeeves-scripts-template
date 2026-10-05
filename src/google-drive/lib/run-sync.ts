@@ -23,7 +23,7 @@ import {
 import { resolveTargetDir, type SyncEntryConfig } from './config.js';
 import { createDriveClient, type DriveClient } from './drive-client.js';
 import { enumerate } from './enumerate.js';
-import { runQueue } from './execute.js';
+import { type RunBudget, runQueue } from './execute.js';
 import { createLedgerStore } from './ledger.js';
 import type { FetchLike } from './meta-seed.js';
 import { plan } from './plan.js';
@@ -36,7 +36,8 @@ import { emptySummary, type SyncSummary } from './summary.js';
 export interface SyncOptions {
   live: boolean;
   allowMassDelete: boolean;
-  deadline: number;
+  /** The run budget, shared by every sync in the run. */
+  budget: RunBudget;
   shouldStop: () => boolean;
   log: (line: string) => void;
   /** Seams (tests): default to gog, the instance content dir, the state dir and global fetch. */
@@ -120,9 +121,8 @@ export async function syncOne(
       client,
       targetDir,
       stagingDir,
-      budget: cfg.budget,
+      budget: opts.budget,
       sheets: cfg.conversion.sheets,
-      deadline: opts.deadline,
       shouldStop: opts.shouldStop,
       now,
     }),

@@ -4,8 +4,9 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SyncEntrySchema } from './config.js';
+import { BudgetConfigSchema, SyncEntrySchema } from './config.js';
 import type { DriveClient } from './drive-client.js';
+import { createRunBudget } from './execute.js';
 import { fakeDrive, file } from './fake-drive.test-helper.js';
 import { fakeRunner } from './fake-runner.test-helper.js';
 import type { FetchLike } from './meta-seed.js';
@@ -67,7 +68,7 @@ function opts(
   return {
     live,
     allowMassDelete: false,
-    deadline: Date.now() + 60_000,
+    budget: createRunBudget(BudgetConfigSchema.parse({}), Date.now()),
     shouldStop: () => false,
     log: (l) => log.push(l),
     client,
@@ -160,13 +161,70 @@ describe('syncOne end to end', () => {
 
     const recovery = await syncOne(cfg, r.client, {
       ...opts(drive(true), true),
-      deadline: Date.now() - 1,
+      budget: createRunBudget(BudgetConfigSchema.parse({}), 0), // spent
     });
     expect(recovery).toMatchObject({
       fileDeletes: 0,
       queueNew: 0,
       guard: { tripped: false },
     });
+    expect(tree()).toEqual(before);
+  });
+
+  it('holds moves when a path lookup fails: no copy, folder or meta moves or goes until a clean run', async () => {
+    // A folder owned inside a delegated domain: the owner's view resolves
+    // its path (My Drive / Clients / Project).
+    const owned = { ...folder, owners: [{ emailAddress: 'o@example.com' }] };
+    const views = {
+      'o@example.com|F': { ...owned, parents: ['C'] },
+      'o@example.com|C': file({
+        id: 'C',
+        name: 'Clients',
+        parents: ['root'],
+        mimeType: FOLDER_MIME,
+      }),
+      'o@example.com|root': file({
+        id: 'root',
+        name: 'My Drive',
+        mimeType: FOLDER_MIME,
+      }),
+    };
+    const ownedDrive = (lookups: boolean): DriveClient => {
+      const c = fakeDrive({
+        sharedWithMe: [owned],
+        children: [note],
+        views: lookups ? views : {},
+      });
+      c.downloadTo = (_id, out) => {
+        fs.writeFileSync(out, 'hello');
+        return out;
+      };
+      return c;
+    };
+
+    const r = fakeRunner();
+    await syncOne(cfg, r.client, opts(ownedDrive(true), true));
+    const before = tree();
+    expect(before.some((p) => p.startsWith('o@example.com/Clients - '))).toBe(
+      true,
+    );
+
+    const log: string[] = [];
+    const failed = await syncOne(
+      cfg,
+      r.client,
+      opts(ownedDrive(false), true, log),
+    );
+    expect(failed.enumerationErrors).toHaveLength(1);
+    expect(failed).toMatchObject({ moves: 0, heldMoves: 1, metaDeletes: 0 });
+    expect(log.some((l) => l.startsWith('HOLD o@example.com/Clients - '))).toBe(
+      true,
+    );
+    expect(tree()).toEqual(before);
+
+    const clean = await syncOne(cfg, r.client, opts(ownedDrive(true), true));
+    expect(clean).toMatchObject({ moves: 0, heldMoves: 0, fileDeletes: 0 });
+    expect(clean.enumerationErrors).toEqual([]);
     expect(tree()).toEqual(before);
   });
 

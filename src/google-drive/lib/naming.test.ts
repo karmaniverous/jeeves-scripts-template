@@ -147,9 +147,25 @@ describe('naming: stem/extension split (§3.2)', () => {
 
 describe('naming: sanitization', () => {
   it('replaces / and control characters with _', () => {
-    expect(sanitizeSegment('2026/10/04 13:34 UTC')).toBe(
-      '2026_10_04 13:34 UTC',
+    expect(sanitizeSegment('2026/10/04\u0000x\u007f')).toBe('2026_10_04_x_');
+  });
+
+  it('replaces every character Windows forbids, so names are valid cross-platform', () => {
+    expect(sanitizeSegment('Q3: plan "v2" <draft> a\\b|c*?')).toBe(
+      'Q3_ plan _v2_ _draft_ a_b_c__',
     );
+    expect(sanitizeSegment('2026/10/04 13:34 UTC')).toBe(
+      '2026_10_04 13_34 UTC',
+    );
+  });
+
+  it('escapes Windows reserved device names, with or without an extension', () => {
+    expect(sanitizeSegment('CON')).toBe('CON_');
+    expect(sanitizeSegment('nul.txt')).toBe('nul_.txt');
+    expect(sanitizeSegment('com1.tar.gz')).toBe('com1_.tar.gz');
+    expect(sanitizeSegment('LPT\u00b9')).toBe('LPT\u00b9_');
+    expect(sanitizeSegment('console')).toBe('console');
+    expect(sanitizeSegment('com10')).toBe('com10');
   });
 
   it('trims leading/trailing whitespace and dots', () => {
@@ -204,6 +220,9 @@ describe('naming: byte-budget truncation', () => {
 
 describe('naming: identity root', () => {
   it('is the verbatim email, lowercased', () => {
+    expect(identityRootSegment('odd:name@example.com')).toBe(
+      'odd_name@example.com',
+    );
     expect(identityRootSegment('Mike.Blaney@Example.com')).toBe(
       'mike.blaney@example.com',
     );

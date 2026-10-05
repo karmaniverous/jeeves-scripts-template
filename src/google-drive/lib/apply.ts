@@ -14,6 +14,41 @@ import path from 'node:path';
 
 const META = '.meta';
 
+/** Error codes Windows raises while another process (an indexer, AV) holds a file open. */
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/** Block the thread for `ms` (the sync's file operations are synchronous). */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * `fs.renameSync`, retried with backoff on Windows' transient sharing
+ * errors: replacing a file the watcher is reading fails with `EPERM` /
+ * `EBUSY` until the reader closes it. POSIX renames never hit this, so
+ * there the first error is thrown.
+ */
+export function renameWithRetry(
+  from: string,
+  to: string,
+  opts: { retry?: boolean; attempts?: number; baseMs?: number } = {},
+): void {
+  const retry = opts.retry ?? process.platform === 'win32';
+  const attempts = opts.attempts ?? 6;
+  const baseMs = opts.baseMs ?? 50;
+  for (let i = 1; ; i++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (!retry || i >= attempts || !TRANSIENT_RENAME_CODES.has(code))
+        throw err;
+      sleepSync(baseMs * 2 ** (i - 1));
+    }
+  }
+}
+
 /**
  * Refuse a symlink at any existing component of `abs` below `base`
  * (`abs` itself included). Lexical containment isn't enough: a linked
@@ -42,7 +77,12 @@ export function assertNoSymlinks(base: string, abs: string): void {
 export function safeJoin(root: string, rel: string): string {
   const abs = path.resolve(root, rel);
   const back = path.relative(root, abs);
-  if (back === '' || back.startsWith('..') || path.isAbsolute(back)) {
+  if (
+    back === '' ||
+    back === '..' ||
+    back.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(back)
+  ) {
     throw new Error(`apply: path escapes target dir: ${rel}`);
   }
   assertNoSymlinks(root, path.dirname(abs));
@@ -93,7 +133,7 @@ export function deleteFiles(targetDir: string, rels: string[]): void {
 export function moveFile(targetDir: string, from: string, to: string): void {
   const dest = safeJoin(targetDir, to);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.renameSync(safeJoin(targetDir, from), dest);
+  renameWithRetry(safeJoin(targetDir, from), dest);
 }
 
 /** Write via a staging file, then rename into place (atomic on one device). */
@@ -106,7 +146,7 @@ export function writeAtomic(
   const dest = safeJoin(targetDir, rel);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(stagingFile, content, 'utf8');
-  fs.renameSync(stagingFile, dest);
+  renameWithRetry(stagingFile, dest);
 }
 
 /** Recreate an empty staging directory; verify it shares a device with `targetDir`. */

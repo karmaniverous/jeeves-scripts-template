@@ -6,6 +6,11 @@
  * stem/extension splitting by conversion class, NFC sanitization,
  * byte-budget truncation on UTF-8 boundaries, and tag parsing.
  *
+ * Every segment produced here is valid on both POSIX filesystems and
+ * Windows (NTFS): characters Windows forbids are replaced, Windows'
+ * reserved device names are escaped, and no segment ends in a dot or
+ * space.
+ *
  * Pure functions only: no filesystem or network access, so this
  * module is fully unit-testable.
  */
@@ -18,7 +23,10 @@ export const TAG_SCHEME = 'sha256-b32-8';
 /** Lowercase RFC 4648 base32 alphabet (no padding). */
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 
-/** Segment name byte budget (ext4 NAME_MAX). */
+/**
+ * Segment name byte budget: ext4 `NAME_MAX` (255 bytes). NTFS allows 255
+ * UTF-16 code units, which a 255-byte UTF-8 name never exceeds.
+ */
 export const MAX_SEGMENT_BYTES = 255;
 
 /** Collision-lengthening tag lengths tried in order. */
@@ -166,20 +174,33 @@ export function splitStemExt(
   return { stem, ext: fallback ?? '.txt' };
 }
 
+/** Characters no segment may contain: path separators and Windows' reserved set. */
+const FORBIDDEN_CHARS = new Set(['/', '\\', ':', '*', '?', '"', '<', '>', '|']);
+
+/** Windows device names, reserved with any extension (`CON`, `nul.txt`, `COM¹`). */
+const RESERVED_NAME = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])$/i;
+
 /**
  * Sanitize a single path segment (spec §3.1 "Sanitization"): NFC
- * normalize, replace `/`, NUL and control characters with `_`, trim
- * leading/trailing whitespace and dots, `untitled` if empty.
+ * normalize; replace control characters (U+0000–U+001F, U+007F), path
+ * separators and the characters Windows forbids (`\ : * ? " < > |`) with
+ * `_`; trim leading/trailing whitespace and dots; `untitled` if empty;
+ * suffix `_` to a Windows reserved device name (`CON` → `CON_`).
  */
 export function sanitizeSegment(name: string): string {
   const normalized = name.normalize('NFC');
   let replaced = '';
   for (const ch of normalized) {
     const code = ch.codePointAt(0) ?? 0;
-    replaced += ch === '/' || code <= 0x1f ? '_' : ch;
+    replaced +=
+      code <= 0x1f || code === 0x7f || FORBIDDEN_CHARS.has(ch) ? '_' : ch;
   }
   const trimmed = replaced.replace(/^[\s.]+|[\s.]+$/g, '');
-  return trimmed.length > 0 ? trimmed : 'untitled';
+  if (trimmed.length === 0) return 'untitled';
+  const base = trimmed.split('.')[0].trimEnd();
+  return RESERVED_NAME.test(base)
+    ? `${base}_${trimmed.slice(base.length)}`
+    : trimmed;
 }
 
 /**
@@ -228,7 +249,10 @@ export function truncateUtf8(value: string, maxBytes: number): string {
   return result;
 }
 
-/** Identity root segment: verbatim email, lowercased (spec §3.1, Q2). */
+/**
+ * Identity root segment: the email, lowercased (spec §3.1, Q2), and
+ * sanitized like any other segment (a no-op for ordinary addresses).
+ */
 export function identityRootSegment(email: string): string {
-  return email.toLowerCase();
+  return sanitizeSegment(email.toLowerCase());
 }

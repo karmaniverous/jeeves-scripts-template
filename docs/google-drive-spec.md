@@ -1,9 +1,10 @@
 # Google Drive Sync: Spec
 
-**Status:** v0.16, implemented in `src/google-drive/` (hoisted by jeeves-scripts-template#97). This is the design record; `src/google-drive/README.md` is the operator reference. `§` references in the code point here.
+**Status:** v0.17, implemented in `src/google-drive/` (hoisted by jeeves-scripts-template#97). This is the design record; `src/google-drive/README.md` is the operator reference. `§` references in the code point here.
 
 **Changelog:**
 
+- v0.17: template review. Failed path or drive-name lookups count as enumeration errors, and a run with enumeration errors holds every move as well as every deletion (§4.3, §6.5). Names are sanitized for Windows as well as POSIX (§3.1) and renames retry Windows sharing violations. One run-wide `googleDrive.budget` replaces the per-sync budgets (§6.4, §8). The block is validated by the domain, not the shared config loader, so a mistake in it fails only this job (§8).
 - v0.16: PR review hardening. Disjoint `targetDir`s and unique accounts (config error); symlinks refused in the owned tree; the content key is read before export; conversion-time skips leave the old copy for the next guarded plan; the planner reconciles the ledger against disk (lost copies re-download, completed moves adopted; moves persisted one by one); unseen records kept while deletions are blocked; no new syncs dispatched once the budget is spent; native text keeps a BOM.
 - v0.15: post-build corrections. VCS exclusion deferred (it also de-indexes via `respectGitignore`; jeeves-watcher#253). `targetDir` must be a strict subdirectory of `CONTENT_DIR`. Dot-entries in the owned tree are platform-owned and ignored. Module layout per the implementation (orchestrate/run-sync/report/seed-metas).
 - v0.14: jeeves-meta pre-implementation check (seed 409, 30-min stale lock, discovery cache); enumeration performance (batched parent queries).
@@ -126,11 +127,11 @@ Extensions come from the item's **class** (§5), not from string-splitting the D
 
 **Length budget.**
 
-- _Per segment:_ ≤ 255 **bytes** (ext4 `NAME_MAX`, confirmed on this host). The name part is truncated to fit: `255 − len(" - " + tag + ext)` bytes, cut on a UTF-8 code-point boundary, trailing whitespace and dots trimmed. That leaves ≥ ~200 bytes of real name for any Drive item. Truncation is deterministic, so it doesn't flap.
+- _Per segment:_ ≤ 255 **bytes** (ext4 `NAME_MAX`, confirmed on this host; NTFS allows 255 UTF-16 units, which a 255-byte UTF-8 name never exceeds). The name part is truncated to fit: `255 − len(" - " + tag + ext)` bytes, cut on a UTF-8 code-point boundary, trailing whitespace and dots trimmed. That leaves ≥ ~200 bytes of real name for any Drive item. Truncation is deterministic, so it doesn't flap.
 - _Optional readability cap:_ `naming.maxNameBytes` (default: none, meaning fill to 255) can shorten the name part further.
-- _Whole path:_ ≤ 4096 bytes (`PATH_MAX`). An item whose absolute path would exceed `naming.maxPathBytes` (default 4000) is skipped and reported, never truncated into a misleading path. In practice that needs a tree more than ~15 levels deep of near-maximal names.
+- _Whole path:_ ≤ 4096 bytes (`PATH_MAX`). On Windows, Node prefixes long paths itself, so `MAX_PATH` (260) doesn't apply to the sync. An item whose absolute path would exceed `naming.maxPathBytes` (default 4000) is skipped and reported, never truncated into a misleading path. In practice that needs a tree more than ~15 levels deep of near-maximal names.
 
-**Sanitization:** names are NFC-normalized. `/` (legal in Drive names; Google Meet auto-folders contain dates like `2026/10/04`), NUL and control characters are replaced with `_`. Leading/trailing whitespace and dots are trimmed. An empty result becomes `untitled`.
+**Sanitization:** names are NFC-normalized. `/` (legal in Drive names; Google Meet auto-folders contain dates like `2026/10/04`), control characters (U+0000–U+001F, U+007F) and the characters Windows forbids in names (`\ : * ? " < > |`) are replaced with `_`. Leading/trailing whitespace and dots are trimmed (Windows also forbids a trailing dot or space). An empty result becomes `untitled`. A Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, including superscript digits, with or without an extension) gets a `_` suffix. Identity roots are sanitized the same way. Every path is therefore valid on Linux, macOS and Windows, so the template's scripts run on Windows instances and the content tree can be cloned anywhere. _(v0.17: an existing mirror whose names contain one of the newly replaced characters sees those items move once, by the normal move path.)_
 
 **Validated on this instance (2026-10-05)** by writing test files under the content root and checking the platform end to end, then removing them:
 
@@ -165,6 +166,7 @@ The instance's gog service account has domain-wide delegation (confirmed working
 
 - **Root names (spike):** the walk ends at the owner's My Drive root, a folder literally named **`My Drive`**, which is dropped (the identity root replaces it). A shared drive's root folder is named **`Drive`** for every drive, so the drive's real name **must** come from `drives.get` (as the impersonated user), never from the root folder's `name`.
 - **Confirmed (spike):** impersonating the owner (My Drive) or the sharer (shared drive) recovers the full path, including intermediate folders that weren't shared.
+- **A failed lookup is an error, not a placement.** If a walk or drive-name lookup is attempted and throws (DWD denied, 5xx, timeout), the item is placed as unresolved for this run **and** the failure is recorded as an enumeration error. That stops the run deleting or moving anything (§6.5), so a transient failure can't relocate a share or remove its metas. Having nobody to impersonate (owner outside the delegated domains, impersonation off) is a stable condition, not an error.
 - Impersonated calls are **metadata-only** (`files.get` with `fields=id,name,parents,driveId`, `drives.get`). Content is always downloaded as the sync account, so we never read anything the sync account wasn't given.
 - Folder lookups are cached per run (one call per distinct ancestor), so cost is proportional to distinct folders, not files.
 - "Delegated domains" is config (`pathResolution.domains`); impersonation can be switched off entirely.
@@ -184,7 +186,7 @@ _(Q3, resolved.)_ When the path above the shared item can't be recovered, the sh
         api - <id>.md                children keep their structure
 ```
 
-**Applies to:** owners or sharers outside `pathResolution.domains` (personal accounts, other organisations), and in-domain items when impersonation is off or denied. The rule is the same in every case; external owners are just the common one.
+**Applies to:** owners or sharers outside `pathResolution.domains` (personal accounts, other organisations), and in-domain items when impersonation is off. An in-domain lookup that is attempted and fails also lands here for that run, but as an enumeration error: nothing is moved or deleted on its account (§4.2, §6.5). The rule is the same in every case; external owners are just the common one.
 
 **Share root identity:** the owner's email (`owners[0].emailAddress`), verbatim and lowercased like any other identity. If the owner isn't visible (e.g. a file in another organisation's shared drive, which has no personal owner), the root is the **sharer's** email (`sharingUser.emailAddress`). If neither is visible, the root is `unknown-owner`, and the run report flags it.
 
@@ -360,9 +362,9 @@ No queue entries are ever edited, deduplicated or invalidated, because none are 
 
 **What is stored per pending item** (in the §6.1 state record): `pendingSince` (first run it was seen pending, for ordering and reporting), `attempts`, `lastError`, `retryAfter`.
 
-**Budget.** Each run processes pending items in order until any limit is reached: `budget.maxSeconds` (default **360**, measured from **process start** so enumeration counts against it; the runner doesn't pass the job's schedule to the script), `budget.maxItems`, `budget.maxBytes`. Validation: `maxSeconds ≤ timeout_seconds − 60`. The limit is checked before each item starts, so a run overshoots by at most one item. A file whose download alone exceeds the budget still gets processed once it reaches the head of the queue. `maxFileBytes` (§5) caps how bad that can be. The job's `overlap_policy: skip` is the backstop if a run overruns anyway.
+**Budget.** One budget for the whole run (`googleDrive.budget`, §8), shared by every sync. Each run processes pending items in order until any limit is reached: `budget.maxSeconds` (default **360**, measured from **process start** so enumeration counts against it; the runner doesn't pass the job's schedule to the script), `budget.maxItems` (downloads attempted), `budget.maxBytes` (bytes written). Item and byte counts accumulate across syncs, so a later sync gets what the earlier ones left. Validation: `maxSeconds ≤ timeout_seconds − 60`. The limit is checked before each item starts, so a run overshoots by at most one item. A file whose download alone exceeds the budget still gets processed once it reaches the head of the queue. `maxFileBytes` (§5) caps how bad that can be. The job's `overlap_policy: skip` is the backstop if a run overruns anyway.
 
-**Multiple syncs.** `syncs[]` entries run sequentially in one process and share its budget. The first sync rotates from run to run (stored in the run-summary state), so none starves.
+**Multiple syncs.** `syncs[]` entries run sequentially in one process and share the run budget. They run oldest `lastRunAt` first (stored in the run-summary state); once the budget is spent no further sync starts, and the skipped ones keep their older `lastRunAt` and go first next run, so none starves.
 
 **Timeout and SIGTERM.** The manifest sets `timeout_seconds: 720`. On timeout the runner sends `SIGTERM`, then `SIGKILL` 5 s later. The script handles `SIGTERM` by taking no new items, abandoning any in-flight temp file, writing the run summary, and exiting within that window. Ledger records are written per item as each one completes, so even a hard kill loses at most the in-flight item, which is simply re-fetched next run.
 
@@ -388,7 +390,8 @@ Exit 0, with warnings in `JR_RESULT`: parked items, unresolved paths, held meta 
 ### 6.5 Safety
 
 - **Dry run by default.** The script prints the plan and changes nothing, on disk **or in runner state** (no `setItem`/`deleteItem`/`setState`, no meta seeding), unless invoked with `--live`. The job manifest passes `--live`, so `runner_trigger` always runs live. A dry run is a manual `tsx` invocation with the runner DB path set: `JR_DB_PATH=/opt/jeeves/state/runner/runner.sqlite tsx src/google-drive/sync.ts`.
-- **Mass-deletion guard.** Deletions (files and `.meta/` directories) are skipped for the run if enumeration hit any error, or if they would exceed **both** `deletion.maxFraction` (default 20%) of the files currently under `targetDir` **and** `deletion.minCount` (default 25) files. The min-count stops small mirrors tripping on routine un-shares. Additions, updates and moves still apply. A trip exits non-zero (alert) and lists the blocked deletions in the run-summary state.
+- **Mass-deletion guard.** Deletions (files and `.meta/` directories) are skipped for the run if enumeration hit any error, or if they would exceed **both** `deletion.maxFraction` (default 20%) of the files currently under `targetDir` **and** `deletion.minCount` (default 25) files. The min-count stops small mirrors tripping on routine un-shares. A trip exits non-zero (alert) and lists the blocked deletions in the run-summary state. When the guard trips only on size, additions, updates and moves still apply.
+- **Enumeration errors hold moves too.** An enumeration error (a failed folder listing, or a failed path or drive-name lookup, §4.2) means the snapshot may place items wrongly, not just omit them. So such a run also applies **no moves**: a written copy whose desired path changed stays where it is, its directories stay in the desired tree, and any pending update to it waits (it would otherwise be written at the new path). Held moves are listed (`HOLD` lines, `heldMoves` in the summary) and applied by the next clean run. Additions at paths that don't displace an existing copy still apply.
 - **`--allow-mass-delete`:** a manual `--live` run with this flag applies guard-blocked deletions (never deletions caused by an enumeration error). It's for when an operator has confirmed a large un-share is intended.
 - **Temp staging.** Downloads and conversions are written to a staging directory **outside the content tree**, `<JEEVES_BASE_DIR>/state/google-drive/tmp/<account>/`, then `rename`d into place. The watcher never sees partial files. `rename` is only atomic within one filesystem, so startup verifies that staging and `targetDir` share a device (`stat().dev`) and fails with a config error otherwise. Startup also clears leftover staging files.
 - **Owned-tree guard.** `targetDir` is wholly owned by the sync, and nothing else should write there (the README says so). The sync only deletes or moves paths inside `targetDir`. Any file there that isn't in the desired file set (§7.1) is deleted, whether or not it's in state, so stray or orphaned files can't survive. Directories, including their `.meta/`, are deleted only when they fall out of the canonical tree (§7.2). A `.meta/` inside a directory that's still in the tree is never touched. `targetDir` itself is never deleted.
@@ -433,10 +436,11 @@ So un-sharing a branch that no other share provides removes the branch and every
 
 ## 8. Configuration
 
-A new optional `googleDrive` block in `pipeline-config.json` (Zod-validated in `pipeline-config.ts`, documented in the template). Absent block → the job logs `[skip]` and exits 0. Per-instance values (accounts, domains) have **no defaults**, per the template rules.
+A new optional `googleDrive` block in `pipeline-config.json`, documented in the template. The shared loader (`src/lib/pipeline-config.ts`) carries it unvalidated; the domain validates it (`src/google-drive/lib/config.ts`) when the job starts. So a mistake in the block fails only this job, never the other jobs that load the config, and `src/lib/` doesn't depend on the domain. Absent block → the job logs `[skip]` and exits 0. Per-instance values (accounts, domains) have **no defaults**, per the template rules.
 
 ```json
 "googleDrive": {
+  "budget": { "maxSeconds": 360, "maxItems": null, "maxBytes": null, "maxAttempts": 5 },
   "syncs": [
     {
       "account": "assistant@example.com",
@@ -454,17 +458,17 @@ A new optional `googleDrive` block in `pipeline-config.json` (Zod-validated in `
       },
       "meta": { "seed": true, "rootSteer": null, "sharePointSteer": null, "lockStaleMinutes": 30 },
       "naming": { "maxNameBytes": null, "maxPathBytes": 4000 },
-      "deletion": { "maxFraction": 0.2, "minCount": 25 },
-      "budget": { "maxSeconds": 360, "maxItems": null, "maxBytes": null, "maxAttempts": 5 }
+      "deletion": { "maxFraction": 0.2, "minCount": 25 }
     }
   ]
 }
 ```
 
+- `budget` is top-level: one budget for the run, shared by every sync (§6.4). A `budget` inside a sync entry is a validation error that points at `googleDrive.budget`.
 - `syncs` is an array so one instance can mirror more than one account, each to its own `targetDir`.
 - `targetDir`: relative paths resolve against `CONTENT_DIR`; default `google-drive`. Either way it must resolve to a **strict subdirectory** of `CONTENT_DIR`: outside it nothing indexes the files, and `CONTENT_DIR` itself would hand the whole content tree to the owned-tree deletion rule. Validation fails otherwise.
 - `conversion.*` arrays **extend** the built-in tables rather than replace them.
-- `exclude` globs match the item's **Drive path** (`<root>/<folder>/…/<name>`): untagged and untruncated, so stable under tag and truncation rules, but **sanitized** (a `/` inside a Drive name becomes `_`), so path segments are unambiguous. An excluded item is treated as absent: not synced, and deleted if previously synced.
+- `exclude` globs match the item's **Drive path** (`<root>/<folder>/…/<name>`): untagged and untruncated, so stable under tag and truncation rules, but **sanitized** (§3.1: a `/` or `:` inside a Drive name becomes `_`), so path segments are unambiguous. Matching uses POSIX glob semantics on every platform. An excluded item is treated as absent: not synced, and deleted if previously synced.
 - There is no `sources` block. Q5 defines the source rule (items shared to the account, recursed), so there's nothing to toggle.
 - `budget.maxSeconds` must be ≤ the job's `timeout_seconds` − 60. The script can't read the manifest, so the README states the pairing and the default (360 / 720) satisfies it.
 
@@ -477,7 +481,8 @@ src/google-drive/
   README.md              domain doc (behaviour lives here, not in a skill)
   sync.ts                entry point: runScript, prerequisite guard, --live/--dry-run
   lib/
-    config.ts            googleDrive block → typed SyncConfig
+    config.ts            googleDrive block → validated config (the domain validates it, not
+                         src/lib/pipeline-config.ts); run budget schema
     drive-client.ts      thin gog wrappers: list, get, export, download, drives, revisions.
                          `--readonly` is hard-coded in the single spawn helper and asserted by a
                          unit test: it is the ONLY write guard (gog tokens carry full scopes, and
@@ -487,8 +492,9 @@ src/google-drive/
     naming.ts            sanitization, ID suffixes, byte-budget truncation, ID parsing (§3.1)
     classify.ts          MIME/extension → conversion class (§5)
     convert.ts           per-class converters (reuses src/convert/lib)
-    plan.ts              snapshot × state → actions (pure; §6.2)
-    apply.ts             atomic writes, moves, deletes, empty-dir prune, guards
+    plan.ts              snapshot × state → actions (pure; §6.2); moves held on enumeration errors
+    execute.ts           run budget shared across syncs; budgeted download queue (§6.4)
+    apply.ts             atomic writes (Windows rename retry), moves, deletes, empty-dir prune, guards
     meta-seed.ts         POST /seed, idempotent
 jobs/google-drive.json   job "google-drive-sync", every 13 min, overlap skip, timeout_seconds 720,
                          args ["--live"], prerequisite: "googleDrive block in pipeline-config.json;

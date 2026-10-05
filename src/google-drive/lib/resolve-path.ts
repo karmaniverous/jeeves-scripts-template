@@ -12,6 +12,13 @@
  * replaces it). A shared drive's root folder is named `Drive` for every
  * drive, so the drive's real name comes from `drives.list`, never from
  * the root folder.
+ *
+ * A lookup that was attempted and failed (a walk or `drives.list` call
+ * threw) is reported in `errors`: the caller counts it as an enumeration
+ * error, so the run deletes and moves nothing on the strength of a
+ * placement that only reflects the failure. An item with no identity to
+ * impersonate (outside the delegated domains, or impersonation off) is
+ * unresolved by design, not an error.
  */
 
 import type { PathResolutionConfig } from './config.js';
@@ -26,7 +33,8 @@ const MAX_DEPTH = 100;
 export const UNKNOWN_OWNER = 'unknown-owner';
 
 export interface PathResolver {
-  resolveShare(item: DriveFile): Share;
+  /** Locate a share; failed lookups are appended to `errors`. */
+  resolveShare(item: DriveFile, errors: string[]): Share;
 }
 
 function domainOf(email: string): string {
@@ -85,18 +93,20 @@ export function createPathResolver(
   const tryWalk = (
     item: DriveFile,
     as: string | null,
+    errors: string[],
     driveId?: string,
   ): { ancestors: PathSegment[]; pathResolved: boolean } => {
     if (!opts.impersonate || !as) return { ancestors: [], pathResolved: false };
     try {
       return { ancestors: walk(item.id, as, driveId), pathResolved: true };
-    } catch {
+    } catch (err) {
+      errors.push(`resolve path of ${item.id} as ${as}: ${String(err)}`);
       return { ancestors: [], pathResolved: false };
     }
   };
 
   return {
-    resolveShare: (item) => {
+    resolveShare: (item, errors) => {
       const isFolder = item.mimeType === FOLDER_MIME;
       const sharer = item.sharingUser?.emailAddress?.toLowerCase();
 
@@ -108,12 +118,18 @@ export function createPathResolver(
         if (opts.impersonate && as) {
           try {
             label = namesFor(as).get(item.driveId) ?? null;
-          } catch {
+          } catch (err) {
+            errors.push(`list drive names as ${as}: ${String(err)}`);
             label = null;
           }
         }
         const root: RootInfo = { kind: 'drive', label, driveId: item.driveId };
-        const { ancestors, pathResolved } = tryWalk(item, as, item.driveId);
+        const { ancestors, pathResolved } = tryWalk(
+          item,
+          as,
+          errors,
+          item.driveId,
+        );
         return {
           id: item.id,
           name: item.name,
@@ -130,6 +146,7 @@ export function createPathResolver(
       const { ancestors, pathResolved } = tryWalk(
         item,
         delegated(owner) ? owner : null,
+        errors,
       );
       return {
         id: item.id,

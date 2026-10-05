@@ -225,6 +225,33 @@ describe('plan: disk is the truth (crash recovery)', () => {
     expect(p.records.get('a')?.localPath).toBe('r/new.md');
   });
 
+  it('holds moves (and skips their updates) on enumeration errors; a clean run applies them', () => {
+    const ledger = new Map([['a', written('r/x/a.md', 'md5:old')]]);
+    const items = [item('a', 'r/a.md', { pathResolved: false })];
+    const held = plan(
+      input({
+        items,
+        ledger,
+        diskFiles: ['r/x/a.md'],
+        diskMetaDirs: ['r/x'],
+        enumerationErrors: 1,
+      }),
+    );
+    expect(held.moves).toEqual([]);
+    expect(held.heldMoves).toEqual([
+      { id: 'a', from: 'r/x/a.md', to: 'r/a.md' },
+    ]);
+    expect(held.queue).toEqual([]);
+    expect(held.fileDeletes).toEqual([]);
+    expect(held.metaDeletes).toEqual([]);
+    expect(held.desiredDirs.has('r/x')).toBe(true);
+    expect(held.records.get('a')?.localPath).toBe('r/x/a.md');
+
+    const clean = plan(input({ items, ledger, diskFiles: ['r/x/a.md'] }));
+    expect(clean.heldMoves).toEqual([]);
+    expect(clean.moves).toEqual([{ id: 'a', from: 'r/x/a.md', to: 'r/a.md' }]);
+  });
+
   it('keeps unseen records while deletions are blocked', () => {
     const ledger = new Map([['gone', written('r/gone.md', 'md5:g')]]);
     const blocked = plan(

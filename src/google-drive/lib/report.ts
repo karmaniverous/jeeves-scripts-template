@@ -23,6 +23,7 @@ export function planSummary(
   | 'files'
   | 'excluded'
   | 'moves'
+  | 'heldMoves'
   | 'fileDeletes'
   | 'metaDeletes'
   | 'guard'
@@ -42,6 +43,7 @@ export function planSummary(
     files: prepared.items.length,
     excluded: prepared.excluded,
     moves: p.moves.length,
+    heldMoves: p.heldMoves.length,
     fileDeletes: p.fileDeletes.length,
     metaDeletes: p.metaDeletes.length,
     guard: p.guard,
@@ -59,6 +61,8 @@ export function planLines(prepared: Prepared, p: Plan): string[] {
   const pathOf = new Map(prepared.items.map((i) => [i.id, i.desiredPath]));
   const lines: string[] = [];
   for (const m of p.moves) lines.push(`MOVE ${m.from} -> ${m.to}`);
+  for (const m of p.heldMoves)
+    lines.push(`HOLD ${m.from} (would move to ${m.to}; enumeration errors)`);
   for (const f of p.fileDeletes) lines.push(`DELETE ${f}`);
   for (const d of p.metaDeletes) lines.push(`DELETE-DIR (with .meta) ${d}`);
   for (const q of p.queue) {

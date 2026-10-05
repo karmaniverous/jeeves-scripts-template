@@ -42,7 +42,8 @@ export function prepare(
   targetDir: string,
 ): Prepared {
   const kept = snapshot.files.filter(
-    (f) => !cfg.exclude.some((g) => path.matchesGlob(excludePath(f), g)),
+    // POSIX glob semantics on every platform: excludePath is '/'-joined.
+    (f) => !cfg.exclude.some((g) => path.posix.matchesGlob(excludePath(f), g)),
   );
 
   const kinds: Prepared['kinds'] = new Map();

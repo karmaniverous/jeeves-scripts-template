@@ -43,6 +43,7 @@ describe('resolveShare: My Drive', () => {
   it('walks the owner chain and drops the `My Drive` root', () => {
     const share = createPathResolver(fakeDrive({ views }), opts).resolveShare(
       shared,
+      [],
     );
     expect(share.root).toEqual({
       kind: 'identity',
@@ -55,8 +56,8 @@ describe('resolveShare: My Drive', () => {
   it('caches folder lookups within a run', () => {
     const client = fakeDrive({ views });
     const resolver = createPathResolver(client, opts);
-    resolver.resolveShare(shared);
-    resolver.resolveShare(shared);
+    resolver.resolveShare(shared, []);
+    resolver.resolveShare(shared, []);
     expect(
       client.calls.filter((c) => c === 'get:owner@example.com|a'),
     ).toHaveLength(1);
@@ -67,10 +68,15 @@ describe('resolveShare: My Drive', () => {
       id: 'x',
       owners: [{ emailAddress: 'someone@example.org' }],
     });
-    const share = createPathResolver(fakeDrive({}), opts).resolveShare(ext);
+    const errors: string[] = [];
+    const share = createPathResolver(fakeDrive({}), opts).resolveShare(
+      ext,
+      errors,
+    );
     expect(share.root.label).toBe('someone@example.org');
     expect(share.ancestors).toEqual([]);
     expect(share.pathResolved).toBe(false);
+    expect(errors).toEqual([]); // unresolved by design, not a failure
   });
 
   it('falls back to the sharer, then unknown-owner', () => {
@@ -78,28 +84,36 @@ describe('resolveShare: My Drive', () => {
     expect(
       r.resolveShare(
         file({ id: 's', sharingUser: { emailAddress: 'S@x.example' } }),
+        [],
       ).root.label,
     ).toBe('s@x.example');
-    expect(r.resolveShare(file({ id: 'u' })).root.label).toBe(UNKNOWN_OWNER);
+    expect(r.resolveShare(file({ id: 'u' }), []).root.label).toBe(
+      UNKNOWN_OWNER,
+    );
   });
 
   it('does not impersonate when impersonation is off', () => {
     const client = fakeDrive({ views });
+    const errors: string[] = [];
     const share = createPathResolver(client, {
       ...opts,
       impersonate: false,
-    }).resolveShare(shared);
+    }).resolveShare(shared, errors);
     expect(share.pathResolved).toBe(false);
     expect(client.calls).toEqual([]);
+    expect(errors).toEqual([]);
   });
 
-  it('marks the path unresolved when the walk fails', () => {
+  it('marks the path unresolved when the walk fails, and reports the failure', () => {
+    const errors: string[] = [];
     const share = createPathResolver(
       fakeDrive({ views: {} }),
       opts,
-    ).resolveShare(shared);
+    ).resolveShare(shared, errors);
     expect(share.pathResolved).toBe(false);
     expect(share.ancestors).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/resolve path of f1 as owner@example.com/);
   });
 });
 
@@ -138,17 +152,33 @@ describe('resolveShare: shared drives', () => {
       views,
       driveNames: { 'jason@example.com': { D1: 'Test' } },
     });
-    const share = createPathResolver(client, opts).resolveShare(shared);
+    const share = createPathResolver(client, opts).resolveShare(shared, []);
     expect(share.root).toEqual({ kind: 'drive', label: 'Test', driveId: 'D1' });
     expect(share.ancestors.map((a) => a.name)).toEqual(['not shared']);
     expect(share.isFolder).toBe(true);
   });
 
-  it('leaves the drive name null when it is unreadable', () => {
+  it('leaves the drive name null when the drive is not listed (not an error)', () => {
+    const errors: string[] = [];
     const share = createPathResolver(fakeDrive({ views }), opts).resolveShare(
       shared,
+      errors,
     );
     expect(share.root.label).toBeNull();
+    expect(errors).toEqual([]);
+  });
+
+  it('reports a failed drives.list as an error', () => {
+    const client = fakeDrive({ views });
+    client.listDriveNames = () => {
+      throw new Error('503');
+    };
+    const errors: string[] = [];
+    const share = createPathResolver(client, opts).resolveShare(shared, errors);
+    expect(share.root.label).toBeNull();
+    expect(errors).toEqual([
+      'list drive names as jason@example.com: Error: 503',
+    ]);
   });
 
   it('uses the fallback identity for an external sharer', () => {
@@ -163,7 +193,7 @@ describe('resolveShare: shared drives', () => {
     const share = createPathResolver(client, {
       ...opts,
       sharedDriveFallbackIdentity: 'admin@example.com',
-    }).resolveShare(ext);
+    }).resolveShare(ext, []);
     expect(share.root.label).toBe('Ops');
   });
 });

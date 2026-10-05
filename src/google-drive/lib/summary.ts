@@ -14,6 +14,8 @@ export interface SyncSummary {
   files: number;
   excluded: number;
   moves: number;
+  /** Moves held back because the run had enumeration errors. */
+  heldMoves: number;
   fileDeletes: number;
   metaDeletes: number;
   guard: { tripped: boolean; reason: string | null; blocked: number };
@@ -45,6 +47,7 @@ export function emptySummary(account: string, live: boolean): SyncSummary {
     files: 0,
     excluded: 0,
     moves: 0,
+    heldMoves: 0,
     fileDeletes: 0,
     metaDeletes: 0,
     guard: { tripped: false, reason: null, blocked: 0 },
@@ -83,6 +86,7 @@ export function compactMeta(summaries: SyncSummary[]): string {
         `left=${String(s.remaining)}`,
         `del=${String(s.fileDeletes)}f/${String(s.metaDeletes)}m`,
         `moved=${String(s.moves)}`,
+        s.heldMoves ? `held=${String(s.heldMoves)}` : '',
         `seeded=${String(s.seeded)}`,
         s.guard.tripped
           ? `GUARD=${s.guard.reason ?? ''}:${String(s.guard.blocked)}`

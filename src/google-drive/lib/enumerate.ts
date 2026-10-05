@@ -119,7 +119,7 @@ export function enumerate(
   const shares: Share[] = [];
   for (const item of shared) {
     try {
-      shares.push(resolver.resolveShare(item));
+      shares.push(resolver.resolveShare(item, errors));
     } catch (err) {
       errors.push(`resolve share ${item.id}: ${String(err)}`);
     }

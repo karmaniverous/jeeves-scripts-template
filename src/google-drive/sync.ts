@@ -20,8 +20,12 @@ import { runScript } from '@karmaniverous/jeeves';
 import { getRunnerClient } from '@karmaniverous/jeeves-runner';
 
 import { CONTENT_DIR } from '../lib/constants.js';
-import { getGoogleDriveSyncs } from '../lib/pipeline-config.js';
-import { assertDisjointTargets } from './lib/config.js';
+import {
+  assertDisjointTargets,
+  BudgetConfigSchema,
+  loadGoogleDriveConfig,
+} from './lib/config.js';
+import { createRunBudget } from './lib/execute.js';
 import { createLedgerStore } from './lib/ledger.js';
 import { runSyncs, selectSyncs } from './lib/orchestrate.js';
 import { compactMeta, exitCodeFor } from './lib/summary.js';
@@ -29,7 +33,8 @@ import { compactMeta, exitCodeFor } from './lib/summary.js';
 runScript('google-drive/sync', async () => {
   const argv = process.argv.slice(2);
   const live = argv.includes('--live');
-  const configured = getGoogleDriveSyncs();
+  const config = loadGoogleDriveConfig();
+  const configured = config?.syncs ?? [];
   assertDisjointTargets(configured, CONTENT_DIR);
   const syncs = selectSyncs(configured, argv, live);
   if (syncs.length === 0) {
@@ -55,14 +60,17 @@ runScript('google-drive/sync', async () => {
     console.log('SIGTERM: finishing the current item, then stopping');
   });
 
-  // The budget runs from process start, the same clock as the runner's timeout.
-  const started = Date.now() - process.uptime() * 1000;
-  const maxSeconds = Math.min(...syncs.map((s) => s.budget.maxSeconds));
+  // One budget for the whole run, on the same clock as the runner's
+  // timeout (process start). A synthesized dry-run entry uses the defaults.
+  const budget = createRunBudget(
+    config?.budget ?? BudgetConfigSchema.parse({}),
+    Date.now() - process.uptime() * 1000,
+  );
 
   const summaries = await runSyncs(syncs, runner, {
     live,
     allowMassDelete: argv.includes('--allow-mass-delete'),
-    deadline: started + maxSeconds * 1000,
+    budget,
     shouldStop: () => stop,
     log: (account, line) => {
       console.log(`[${account}] ${line}`);

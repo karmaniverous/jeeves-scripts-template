@@ -10,6 +10,7 @@ import { getArg } from '@karmaniverous/jeeves';
 import type { RunnerClient } from '@karmaniverous/jeeves-runner';
 
 import { type SyncEntryConfig, SyncEntrySchema } from './config.js';
+import { budgetExhausted } from './execute.js';
 import { createLedgerStore } from './ledger.js';
 import { syncOne, type SyncOptions } from './run-sync.js';
 import type { SyncSummary } from './summary.js';
@@ -65,7 +66,7 @@ export async function runSyncs(
   for (const { cfg, store } of entries) {
     // Out of budget: leave the remaining accounts' lastRunAt untouched so
     // they sort first next run instead of starving behind this one.
-    if (opts.live && (opts.shouldStop() || Date.now() >= opts.deadline)) break;
+    if (opts.live && (opts.shouldStop() || budgetExhausted(opts.budget))) break;
     const summary = await syncFn(cfg, runner, {
       ...opts,
       log: (line) => {

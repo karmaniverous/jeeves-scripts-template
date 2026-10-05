@@ -18,6 +18,10 @@
  * - The mass-deletion guard blocks all deletions on enumeration errors,
  *   or when deletions exceed BOTH `maxFraction` of disk files AND
  *   `minCount`.
+ * - A run with enumeration errors (a failed listing or path lookup) also
+ *   moves nothing: a written copy whose desired path changed stays where
+ *   it is ("held"), and its pending update waits, because the new path may
+ *   only reflect the failure. The next clean run applies the move.
  */
 
 import path from 'node:path/posix';
@@ -69,6 +73,8 @@ export interface Plan {
   records: Map<string, LedgerRecord>;
   ledgerRemovals: string[];
   guard: { tripped: boolean; reason: string | null; blocked: number };
+  /** Moves held back because the run had enumeration errors. */
+  heldMoves: { id: string; from: string; to: string }[];
   /** Deletions the guard blocked (files and meta dirs), for the run state. */
   blockedDeletes: string[];
   parked: string[];
@@ -205,6 +211,8 @@ export function plan(input: PlanInput): Plan {
   const live = new Set<string>();
   const desiredDirs = new Set<string>();
   const parked: string[] = [];
+  const heldMoves: Plan['heldMoves'] = [];
+  const holdMoves = input.enumerationErrors > 0;
 
   const onDisk = new Set(input.diskFiles);
   for (const item of input.items) {
@@ -212,13 +220,21 @@ export function plan(input: PlanInput): Plan {
     const c = classifyItem(item, prior, input.now, onDisk);
     records.set(item.id, c.record);
     if (c.record.parked) parked.push(item.id);
+    const from = c.record.localPath;
+    const to = c.livePath;
+    const move = to && from && from !== to ? { id: item.id, from, to } : null;
+    if (move && holdMoves) {
+      // Keep the copy (and its directories) where it is; skip its update.
+      heldMoves.push(move);
+      live.add(move.from);
+      for (const d of ancestorDirs(move.from)) desiredDirs.add(d);
+      continue;
+    }
     if (c.queued) entries.push(c.queued);
-    if (c.livePath) {
-      live.add(c.livePath);
-      for (const d of ancestorDirs(c.livePath)) desiredDirs.add(d);
-      const from = c.record.localPath;
-      if (from && from !== c.livePath)
-        moves.push({ id: item.id, from, to: c.livePath });
+    if (to) {
+      live.add(to);
+      for (const d of ancestorDirs(to)) desiredDirs.add(d);
+      if (move) moves.push(move);
     }
     if (c.pendingNewDir && c.pendingNewDir !== '.') {
       for (const d of [...ancestorDirs(c.pendingNewDir), c.pendingNewDir])
@@ -273,6 +289,7 @@ export function plan(input: PlanInput): Plan {
     records,
     ledgerRemovals,
     guard: { tripped: reason !== null, reason, blocked },
+    heldMoves,
     blockedDeletes,
     parked,
   };

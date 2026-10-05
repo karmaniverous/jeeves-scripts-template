@@ -31,10 +31,11 @@ Do these in order on a new instance. Each step has a check.
 
 ## Configuration
 
-Optional `googleDrive` block in `pipeline-config.json`, validated by `lib/config.ts` (Zod). No block → the job logs `[skip]` and exits 0. Only `account` and `pathResolution.domains` normally need setting.
+Optional `googleDrive` block in `pipeline-config.json`. The shared config loader (`src/lib/pipeline-config.ts`) passes it through unvalidated; this job validates it (`lib/config.ts`, Zod) when it starts, so a mistake in the block fails only the Drive job, never the other jobs that load the config. No block → the job logs `[skip]` and exits 0. Only `account` and `pathResolution.domains` normally need setting.
 
 ```json
 "googleDrive": {
+  "budget": { "maxSeconds": 360, "maxItems": null, "maxBytes": null, "maxAttempts": 5 },
   "syncs": [
     {
       "account": "assistant@example.com",
@@ -48,21 +49,25 @@ Optional `googleDrive` block in `pipeline-config.json`, validated by `lib/config
       },
       "meta": { "seed": true, "rootSteer": null, "sharePointSteer": null, "lockStaleMinutes": 30 },
       "naming": { "maxNameBytes": null, "maxPathBytes": 4000 },
-      "deletion": { "maxFraction": 0.2, "minCount": 25 },
-      "budget": { "maxSeconds": 360, "maxItems": null, "maxBytes": null, "maxAttempts": 5 }
+      "deletion": { "maxFraction": 0.2, "minCount": 25 }
     }
   ]
 }
 ```
 
+`budget` is top-level: one budget for the whole run, shared by every sync.
+
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `account` | required | Workspace mailbox registered in gog that the sync reads as. Unique across `syncs` (it keys the ledger) |
+| `budget.maxSeconds` | 360 | Time budget for the run, measured from process start. Once it's spent, no further download starts and remaining syncs are not started; they keep their older `lastRunAt` and go first next run. Keep ≤ the job's `timeout_seconds` (720) − 60 |
+| `budget.maxItems` / `maxBytes` | `null` | Optional limits on downloads attempted / bytes written, counted across all syncs in the run |
+| `budget.maxAttempts` | 5 | Failures before an item is parked |
+| `syncs[].account` | required | Workspace mailbox registered in gog that the sync reads as. Unique across `syncs` (it keys the ledger) |
 | `targetDir` | `google-drive` | Relative to `CONTENT_DIR`, or absolute. Must resolve to a **strict subdirectory** of `CONTENT_DIR` (never `CONTENT_DIR` itself, never outside it), and must not equal or nest with another sync's `targetDir` (the default is shared, so a second sync needs its own). The sync owns and prunes that tree, so never write anything else there |
 | `pathResolution.impersonate` | `true` | Impersonate owners/sharers (metadata only) to recover folder paths |
 | `pathResolution.domains` | `[]` | Domains the DWD key covers; owners/sharers outside them are "external" |
 | `pathResolution.sharedDriveFallbackIdentity` | `null` | Who to impersonate for a shared-drive item shared by an external user |
-| `exclude` | `[]` | Globs (`path.matchesGlob`) on the item's **sanitized, untagged Drive path** (`<root>/<folder>/…/<name>`; `/` inside a name becomes `_`). `<root>` is the identity email or the shared drive's name (`shared-drive <driveId>` when unreadable). Excluded = absent: not synced, deleted if previously synced |
+| `exclude` | `[]` | Globs (`path.posix.matchesGlob`, on every platform) on the item's **sanitized, untagged Drive path** (`<root>/<folder>/…/<name>`; each name sanitized as in [Output Layout and Naming](#output-layout-and-naming), so `/` or `:` inside a name becomes `_`). `<root>` is the identity email or the shared drive's name (`shared-drive <driveId>` when unreadable). Excluded = absent: not synced, deleted if previously synced |
 | `maxFileBytes` | 25 MB | Uploaded files larger than this are skipped (`oversize`) |
 | `conversion.textMimeTypes` / `textExtensions` / `skipMimeTypes` | `[]` | **Extend** the built-in tables in `lib/classify.ts` |
 | `conversion.sheets.*` | 5000 / 2000 | Row cap per tab, character cap per cell (truncation is noted in the output) |
@@ -72,9 +77,8 @@ Optional `googleDrive` block in `pipeline-config.json`, validated by `lib/config
 | `naming.maxNameBytes` | `null` | Optional readability cap on the name part of a segment |
 | `naming.maxPathBytes` | 4000 | Items whose absolute path would exceed this are skipped (`path-too-long`), never truncated into a misleading path |
 | `deletion.maxFraction` / `minCount` | 0.2 / 25 | Mass-deletion guard: trips only when deletions exceed **both** |
-| `budget.maxSeconds` | 360 | Download budget, measured from process start and shared by all syncs in the run. Once it's spent, remaining syncs are not started; they keep their older `lastRunAt` and go first next run. Keep ≤ the job's `timeout_seconds` (720) − 60 |
-| `budget.maxItems` / `maxBytes` | `null` | Optional extra limits per run |
-| `budget.maxAttempts` | 5 | Failures before an item is parked |
+
+The other fields are per sync (`syncs[].…`). A `budget` inside a sync entry is rejected with a message pointing at `googleDrive.budget`.
 
 ## Data Flow
 
@@ -110,7 +114,8 @@ flowchart TD
 - **Tag** = first 8 chars of lowercase RFC 4648 base32 of `sha256(driveId)` (`TAG_SCHEME = 'sha256-b32-8'`, pinned: changing it would rename every path). Applied to every segment except identity roots. Colliding siblings lengthen to 12, then 16 chars.
 - **Segment format** `<stem> - <tag><ext>`, parsed by `/ - ([a-z2-7]{8,})(\.[^/]*)?$/` (the tag is after the _last_ `-`, so names containing `-` are fine).
 - **Extensions** come from the conversion class, not from splitting the name: Google-native names are never split; for uploads only a trailing `.[A-Za-z0-9]{1,10}` counts as an extension; native text without one gets an extension from its MIME type.
-- **Sanitization:** NFC; `/`, NUL and control characters become `_`; trailing dots/space trimmed; empty → `untitled`. Each segment ≤ 255 bytes (name part truncated on a UTF-8 boundary).
+- **Sanitization (valid on Linux, macOS and Windows):** NFC; control characters (U+0000–U+001F, U+007F), `/` and the characters Windows forbids (`\ : * ? " < > |`) become `_`; leading/trailing whitespace and dots trimmed; empty → `untitled`; a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, with or without an extension) gets a `_` suffix (`CON` → `CON_`). Identity roots are sanitized the same way (a no-op for ordinary addresses). Each segment ≤ 255 bytes (name part truncated on a UTF-8 boundary), which also fits NTFS's 255 UTF-16 units. Tags are lowercase, so siblings never collide on case-insensitive filesystems.
+- **Windows:** Node resolves long paths itself, so `naming.maxPathBytes` (4000) is the only path-length cap. Renames that replace a file another process holds open (the watcher indexing it) are retried briefly on `EPERM`/`EACCES`/`EBUSY` (`renameWithRetry` in `lib/apply.ts`).
 - **Finding the Drive item for a path:** take the tag, then compute tags for candidate ids:
   ```bash
   node -e 'const c=require("crypto");const a="abcdefghijklmnopqrstuvwxyz234567";const b=c.createHash("sha256").update(process.argv[1]).digest();let bits=0,v=0,o="";for(const x of b){v=(v<<8)|x;bits+=8;while(bits>=5){o+=a[(v>>>(bits-5))&31];bits-=5}}console.log(o.slice(0,8))' <driveId>
@@ -123,6 +128,7 @@ flowchart TD
 - **My Drive item, owner in `domains`:** the real folder path below the owner's `My Drive` (dropped), recovered by impersonating the owner.
 - **Shared-drive item:** the real path below the drive root, recovered by impersonating the sharer. The drive's name comes from `drives.list`, because every drive's root folder is literally named `Drive`. Unreadable name → `shared-drive - <tag>`.
 - **External (or unresolvable):** the shared item goes **directly in the share root** (owner email; sharer email if no owner is visible; else `unknown-owner`). Shared folders keep their child structure. An item reachable through several shares is placed once, under its fullest visible path.
+- **Failed lookups are errors, not placements.** "Unresolvable" means there was nobody to impersonate (owner outside `domains`, impersonation off). When a lookup is attempted and _fails_ (the ancestor walk or `drives.list` throws), the failure counts as an enumeration error: the run deletes nothing and moves nothing (copies whose path changed are **held** where they are), so a transient Google error can't shuffle a share or drop its metas. The next clean run applies whatever the snapshot then says.
 
 ## Conversion Matrix
 
@@ -169,7 +175,7 @@ jeeves-runner state (`JR_DB_PATH`), namespace `google-drive`:
 ## Running
 
 ```bash
-# Dry run (default): prints MOVE / DELETE / NEW / UPDATE / SKIP / META-CANDIDATE lines, writes nothing
+# Dry run (default): prints MOVE / HOLD / DELETE / NEW / UPDATE / SKIP / META-CANDIDATE lines, writes nothing
 JR_DB_PATH=/opt/jeeves/state/runner/runner.sqlite npx tsx src/google-drive/sync.ts
 # Before a googleDrive block exists: synthesize an entry for one account
 JR_DB_PATH=… npx tsx src/google-drive/sync.ts --account assistant@example.com --domains example.com
@@ -187,7 +193,7 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 
 `runner_trigger` always runs with the manifest's `args` (`--live`), so there is no runner-side dry run.
 
-**Run report.** Per-item lines are sparse; every run ends with one line the runner stores: `JR_RESULT:{"meta":"<account> live shares=4 files=12 queue=0u/10n/0p done=10 failed=0 left=0 del=0f/0m moved=0 seeded=7"}` (`queue` = updates/new/parked; `left` = items deferred by the budget; `GUARD=…` appears when the guard tripped).
+**Run report.** Per-item lines are sparse; every run ends with one line the runner stores: `JR_RESULT:{"meta":"<account> live shares=4 files=12 queue=0u/10n/0p done=10 failed=0 left=0 del=0f/0m moved=0 seeded=7"}` (`queue` = updates/new/parked; `left` = items deferred by the budget; `GUARD=…` appears when the guard tripped; `held=N` when moves were held back by enumeration errors).
 
 **Exit codes.** Non-zero fires the job's `on_failure` alert and is reserved for what needs a human: invalid config, auth or enumeration failure (crash, exit 1), and a **tripped mass-deletion guard or enumeration errors** (exit 2). Parked items, unresolved paths, held locks and skips are warnings in the summary (exit 0).
 
@@ -200,6 +206,7 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 - **Unseen items:** ledger records for items missing from the snapshot are dropped only when their deletions actually run. After a blocked run (enumeration error or guard), returning items find their records, so their copies aren't mistaken for strays.
 - **Staging:** downloads go to `<JEEVES_BASE_DIR>/state/google-drive/tmp/<account>/` (outside the content tree, so the watcher never sees partial files), then are renamed into place. Startup verifies staging and `targetDir` share a filesystem and clears leftovers.
 - **Mass-deletion guard:** deletions (files and `.meta/` directories) are skipped when enumeration had errors, or when they exceed both `deletion.maxFraction` of the files on disk and `deletion.minCount`.
+- **Enumeration errors hold moves:** a run with any enumeration error (a failed folder listing, or a failed path or drive-name lookup) also moves nothing. A copy whose desired path changed stays put and its pending update waits (`HOLD` line, `heldMoves` in the summary); the next clean run moves it. Without this, a failed lookup would make every item in a share look relocated.
 
 ## Jobs
 
@@ -216,10 +223,11 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 | `[skip] no googleDrive syncs configured` | No `googleDrive` block, or `--account` matched nothing. Check `pipeline-config.json` |
 | gog error about missing credentials for the account | Onboarding step 1: `gog auth service-account status <account>` |
 | `unauthorized_client` / 403 on Drive or Sheets | DWD grant missing a scope gog requests (step 2): `gog auth services` lists them |
-| Files land flat under an email root | Owner outside `pathResolution.domains`, or impersonation off/denied. Check `pathResolved` in frontmatter and `unresolvedShares` in the run state |
+| Files land flat under an email root | Owner outside `pathResolution.domains`, or impersonation off. Check `pathResolved` in frontmatter and `unresolvedShares` in the run state. A denied or failed impersonation shows up as an enumeration error instead (below) |
 | Shared-drive root named `shared-drive - <tag>` | Drive name unreadable as the sharer: sharer external and no `sharedDriveFallbackIdentity` |
 | `GUARD=mass-deletion` / exit 2 | Review the blocked deletions (`runner_query_state google-drive run:<account>`); if intended, run once with `--live --allow-mass-delete` |
-| `GUARD=enumeration-error` / exit 2 | A folder listing or share resolution failed; see `enumerationErrors` in the run state. Deletions resume when enumeration is clean |
+| `GUARD=enumeration-error` or `held=N` / exit 2 | A folder listing, path lookup or drive-name lookup failed; see `enumerationErrors` in the run state. Deletions and moves resume when enumeration is clean. A lookup that fails every run (e.g. DWD revoked for that owner) holds that share until fixed or the owner's domain is removed from `pathResolution.domains` |
+| `invalid googleDrive block` | The block failed validation (only this job stops; the message names the field). `syncs[].budget is no longer supported` → move it to the top-level `googleDrive.budget` |
 | Item never updates | `runner_query_collection google-drive files:<account>` → check `skipped`, `parked`, `lastError`, `retryAfter` |
 | `locks=N` in the summary | A `.meta/.lock` younger than `lockStaleMinutes` blocked a directory removal; it's retried next run. A stuck lock can be cleared with `meta_unlock` |
 | Startup error about different filesystems | Staging and `targetDir` are on different mounts; `rename` wouldn't be atomic |
@@ -233,12 +241,12 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 
 | File | Purpose |
 | --- | --- |
-| `sync.ts` | CLI entry: flags, `--reset-state`, SIGTERM, budget deadline, `JR_RESULT`, exit code |
+| `sync.ts` | CLI entry: loads the `googleDrive` block, flags, `--reset-state`, SIGTERM, the run budget, `JR_RESULT`, exit code |
 | `lib/orchestrate.ts` | `selectSyncs` (config + `--account`/`--domains`), oldest-first rotation, per-sync run state |
 | `lib/run-sync.ts` | One sync end to end: enumerate → prepare → plan → (live) apply, queue, prune, seed |
 | `lib/report.ts` | Plan → summary fields and the per-item `MOVE`/`DELETE`/`NEW`/… lines |
 | `lib/seed-metas.ts` | Which share dirs get a `.meta/`, with which steer |
-| `lib/config.ts` | Zod schema for the `googleDrive` block; `resolveTargetDir()` |
+| `lib/config.ts` | Zod schema and loader for the `googleDrive` block (`loadGoogleDriveConfig()`); `resolveTargetDir()` |
 | `lib/drive-client.ts` | Read-only gog wrappers (`buildGogArgs` hard-codes `--readonly`); batched child listing |
 | `lib/resolve-path.ts` | Share root + ancestor walk via impersonation, cached per run |
 | `lib/enumerate.ts` | Remote snapshot: shares, BFS of shared folders, best placement |
@@ -247,10 +255,10 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 | `lib/classify.ts` | MIME/extension → conversion kind |
 | `lib/content-key.ts` | md5 / two-stage revision content keys |
 | `lib/prepare.ts` | Snapshot → planner input (exclude, classify, layout, pre-skips) |
-| `lib/plan.ts` | Pure planner: moves, deletes, derived queue, guard, desired dirs |
-| `lib/execute.ts` | Budgeted queue worker, failure/backoff/park policy |
+| `lib/plan.ts` | Pure planner: moves (held on enumeration errors), deletes, derived queue, guard, desired dirs |
+| `lib/execute.ts` | Run budget (`createRunBudget`, `budgetExhausted`), budgeted queue worker, failure/backoff/park policy |
 | `lib/convert.ts`, `lib/sheets-md.ts`, `lib/frontmatter.ts` | Materialise files as text |
-| `lib/apply.ts` | Filesystem ops: scan, atomic write, move, prune, lock check |
+| `lib/apply.ts` | Filesystem ops: scan, atomic write, move (Windows-safe rename retry), prune, lock check |
 | `lib/meta-seed.ts` | `POST /seed` (201 created / 409 exists) |
 | `lib/ledger.ts` | Runner-state ledger (read-only in dry run), reset |
 | `lib/summary.ts` | Run summary, `JR_RESULT` meta, exit code |

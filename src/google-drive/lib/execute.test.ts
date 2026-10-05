@@ -7,7 +7,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BudgetConfigSchema, SheetsConversionSchema } from './config.js';
 import { decodeUtf8, materialize, SkipError } from './convert.js';
 import type { DriveClient } from './drive-client.js';
-import { backoffMs, type QueueContext, runQueue } from './execute.js';
+import {
+  backoffMs,
+  budgetExhausted,
+  createRunBudget,
+  type QueueContext,
+  runQueue,
+} from './execute.js';
 import { fakeDrive, file } from './fake-drive.test-helper.js';
 import { fakeRunner } from './fake-runner.test-helper.js';
 import { createLedgerStore, emptyRecord } from './ledger.js';
@@ -141,9 +147,8 @@ describe('runQueue (§6.4)', () => {
       client: client(bodies),
       targetDir: target,
       stagingDir: staging,
-      budget: BudgetConfigSchema.parse({}),
+      budget: createRunBudget(BudgetConfigSchema.parse({}), Date.now()),
       sheets,
-      deadline: Date.now() + 60_000,
       shouldStop: () => false,
       now: () => new Date('2026-10-05T12:00:00Z'),
       ...over,
@@ -168,7 +173,12 @@ describe('runQueue (§6.4)', () => {
   it('stops at the item budget or on SIGTERM, leaving the rest queued', async () => {
     const byItems = ctx(
       { a: 'A', b: 'B', c: 'C' },
-      { budget: BudgetConfigSchema.parse({ maxItems: 2 }) },
+      {
+        budget: createRunBudget(
+          BudgetConfigSchema.parse({ maxItems: 2 }),
+          Date.now(),
+        ),
+      },
     );
     expect(await runQueue(byItems)).toMatchObject({
       processed: 2,
@@ -178,6 +188,35 @@ describe('runQueue (§6.4)', () => {
       processed: 0,
       remaining: 3,
     });
+  });
+
+  it('shares one budget across queues: a later sync gets only what is left', async () => {
+    const budget = createRunBudget(
+      BudgetConfigSchema.parse({ maxItems: 4, maxBytes: 1000 }),
+      Date.now(),
+    );
+    expect(
+      await runQueue(ctx({ a: 'A', b: 'B', c: 'C' }, { budget })),
+    ).toMatchObject({ processed: 3, remaining: 0 });
+    expect(budget.spent).toEqual({ items: 3, bytes: 3 });
+    expect(
+      await runQueue(ctx({ a: 'A', b: 'B', c: 'C' }, { budget })),
+    ).toMatchObject({ processed: 1, remaining: 2 });
+    expect(budgetExhausted(budget)).toBe(true);
+  });
+
+  it('budgetExhausted covers time, items and bytes', () => {
+    const limits = BudgetConfigSchema.parse({ maxItems: 2, maxBytes: 10 });
+    const b = createRunBudget(limits, 0);
+    expect(b.deadline).toBe(360_000);
+    expect(budgetExhausted(b, 1)).toBe(false);
+    expect(budgetExhausted(b, 360_000)).toBe(true);
+    expect(budgetExhausted({ ...b, spent: { items: 2, bytes: 0 } }, 1)).toBe(
+      true,
+    );
+    expect(budgetExhausted({ ...b, spent: { items: 0, bytes: 10 } }, 1)).toBe(
+      true,
+    );
   });
 
   it('lets a signal handler run between items (SIGTERM is a macrotask)', async () => {

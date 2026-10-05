@@ -1,11 +1,16 @@
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   assertDisjointTargets,
+  BudgetConfigSchema,
   GoogleDriveConfigSchema,
+  parseGoogleDriveConfig,
   resolveTargetDir,
   SyncEntrySchema,
 } from './config.js';
+import { createRunBudget } from './execute.js';
 import { fakeRunner } from './fake-runner.test-helper.js';
 import { createLedgerStore } from './ledger.js';
 import { lastRunAt, runSyncs, selectSyncs } from './orchestrate.js';
@@ -57,7 +62,7 @@ describe('runSyncs', () => {
     const lines: string[] = [];
     const opts = {
       allowMassDelete: false,
-      deadline: Date.now() + 60_000,
+      budget: createRunBudget(BudgetConfigSchema.parse({}), Date.now()),
       shouldStop: () => false,
       log: (acct: string, l: string) => lines.push(`${acct}:${l}`),
     };
@@ -102,7 +107,7 @@ describe('runSyncs budget', () => {
     const opts = {
       live: true,
       allowMassDelete: false,
-      deadline: Date.now() + 60_000,
+      budget: createRunBudget(BudgetConfigSchema.parse({}), Date.now()),
       shouldStop: () => !budgetLeft,
       log: () => undefined,
     };
@@ -123,16 +128,56 @@ describe('config', () => {
   it('fills every default from just an account', () => {
     const s = SyncEntrySchema.parse({ account: 'a@example.com' });
     expect(s.targetDir).toBe('google-drive');
-    expect(s.budget.maxSeconds).toBe(360);
     expect(s.meta.lockStaleMinutes).toBe(30);
     expect(s.deletion).toEqual({ maxFraction: 0.2, minCount: 25 });
+    const g = GoogleDriveConfigSchema.parse({
+      syncs: [{ account: 'a@example.com' }],
+    });
+    expect(g.budget).toEqual({
+      maxSeconds: 360,
+      maxItems: null,
+      maxBytes: null,
+      maxAttempts: 5,
+    });
+  });
+
+  it('rejects a per-sync budget, pointing at the top-level one', () => {
+    expect(() =>
+      GoogleDriveConfigSchema.parse({
+        syncs: [{ account: 'a@example.com', budget: { maxSeconds: 60 } }],
+      }),
+    ).toThrow(/move it to googleDrive\.budget/);
+  });
+
+  it('loads the block: null when absent, a clear error when invalid', () => {
+    expect(parseGoogleDriveConfig(undefined)).toBeNull();
+    expect(
+      parseGoogleDriveConfig({ syncs: [{ account: 'a@example.com' }] })?.syncs,
+    ).toHaveLength(1);
+    expect(() => parseGoogleDriveConfig({ syncs: [] })).toThrow(
+      /invalid googleDrive block/,
+    );
   });
 
   it('resolves targetDir under the content dir and rejects escapes', () => {
-    expect(resolveTargetDir('google-drive', '/c')).toBe('/c/google-drive');
-    expect(resolveTargetDir('/c/x/y', '/c')).toBe('/c/x/y');
-    for (const bad of ['/elsewhere', '/c/../d', '../d', '.', '/c']) {
-      expect(() => resolveTargetDir(bad, '/c')).toThrow(
+    // Native paths: the same assertions hold on POSIX and Windows.
+    const c = path.resolve('/c');
+    expect(resolveTargetDir('google-drive', c)).toBe(
+      path.join(c, 'google-drive'),
+    );
+    expect(resolveTargetDir(path.join(c, 'x', 'y'), c)).toBe(
+      path.join(c, 'x', 'y'),
+    );
+    expect(resolveTargetDir('..dots', c)).toBe(path.join(c, '..dots'));
+    const bad = [
+      path.resolve('/elsewhere'),
+      path.join(c, '..', 'd'),
+      '../d',
+      '.',
+      c,
+    ];
+    for (const b of bad) {
+      expect(() => resolveTargetDir(b, c)).toThrow(
         /subdirectory of CONTENT_DIR/,
       );
     }

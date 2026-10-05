@@ -2,9 +2,10 @@
  * @module google-drive/lib/config
  *
  * Zod schema and types for the `googleDrive` pipeline-config block
- * (spec §8). Exported here and re-exported into the main
- * `PipelineConfigSchema` (`src/lib/pipeline-config.ts`) so the rest of
- * the pipeline sees one validated config shape.
+ * (spec §8), and its loader. The main `PipelineConfigSchema`
+ * (`src/lib/pipeline-config.ts`) carries the block unvalidated; it is
+ * validated here, when the Drive job loads it, so a mistake in it fails
+ * only this job and `src/lib/` never depends on this domain.
  *
  * `targetDir` resolution (relative to `CONTENT_DIR`, absolute paths
  * must sit under it) is a separate pure function so it can be unit
@@ -14,6 +15,8 @@
 import path from 'node:path';
 
 import { z } from 'zod';
+
+import { loadPipelineConfig } from '../../lib/pipeline-config.js';
 
 export const PathResolutionSchema = z.object({
   /** Impersonate owners/sharers in delegated domains to resolve paths (§4.2). */
@@ -64,6 +67,11 @@ export const DeletionConfigSchema = z.object({
 });
 export type DeletionConfig = z.infer<typeof DeletionConfigSchema>;
 
+/**
+ * The run budget (spec §6.4): one setting for the whole run, shared by
+ * every sync. `maxSeconds` runs from process start; `maxItems` and
+ * `maxBytes` count downloads across all syncs.
+ */
 export const BudgetConfigSchema = z.object({
   maxSeconds: z.number().int().positive().default(360),
   maxItems: z.number().int().positive().nullable().default(null),
@@ -85,11 +93,18 @@ export const SyncEntrySchema = z.object({
   meta: MetaSyncConfigSchema.prefault({}),
   naming: NamingConfigSchema.prefault({}),
   deletion: DeletionConfigSchema.prefault({}),
-  budget: BudgetConfigSchema.prefault({}),
+  /** Moved to the top-level `googleDrive.budget`; rejected here so an old config fails loudly. */
+  budget: z
+    .never({
+      error:
+        'googleDrive.syncs[].budget is no longer supported: move it to googleDrive.budget (one budget for the whole run)',
+    })
+    .optional(),
 });
 export type SyncEntryConfig = z.infer<typeof SyncEntrySchema>;
 
 export const GoogleDriveConfigSchema = z.object({
+  budget: BudgetConfigSchema.prefault({}),
   syncs: z
     .array(SyncEntrySchema)
     .min(1)
@@ -110,6 +125,34 @@ export const GoogleDriveConfigSchema = z.object({
 });
 export type GoogleDriveConfig = z.infer<typeof GoogleDriveConfigSchema>;
 
+/** The pipeline config's `googleDrive` block, validated (`null` when absent). */
+export function loadGoogleDriveConfig(): GoogleDriveConfig | null {
+  return parseGoogleDriveConfig(loadPipelineConfig().googleDrive);
+}
+
+/**
+ * Validate a raw `googleDrive` block; `null` when it is absent.
+ *
+ * @throws When the block is present but invalid.
+ */
+export function parseGoogleDriveConfig(raw: unknown): GoogleDriveConfig | null {
+  if (raw === undefined || raw === null) return null;
+  const parsed = GoogleDriveConfigSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `pipeline-config: invalid googleDrive block: ${z.prettifyError(parsed.error)}`,
+    );
+  }
+  return parsed.data;
+}
+
+/** True when `rel` (a `path.relative` result) climbs out of its base. */
+function escapes(rel: string): boolean {
+  return (
+    rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)
+  );
+}
+
 /**
  * Resolve a sync's `targetDir` to an absolute path under `contentDir`.
  *
@@ -125,7 +168,7 @@ export function resolveTargetDir(
   // CONTENT_DIR itself, never outside it (relative `..` included).
   const resolved = path.resolve(contentDir, targetDir);
   const rel = path.relative(contentDir, resolved);
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+  if (rel === '' || escapes(rel)) {
     throw new Error(
       `googleDrive sync targetDir "${targetDir}" must be a subdirectory of CONTENT_DIR (${contentDir}): the sync owns and prunes that tree.`,
     );
@@ -152,8 +195,7 @@ export function assertDisjointTargets(
     for (const b of targets.slice(i + 1)) {
       const rel = path.relative(a.dir, b.dir);
       const back = path.relative(b.dir, a.dir);
-      const nested = (r: string): boolean =>
-        r === '' || (!r.startsWith('..') && !path.isAbsolute(r));
+      const nested = (r: string): boolean => r === '' || !escapes(r);
       if (nested(rel) || nested(back)) {
         throw new Error(
           `googleDrive syncs ${a.account} and ${b.account} have overlapping targetDirs (${a.dir}, ${b.dir}); each sync needs its own tree.`,

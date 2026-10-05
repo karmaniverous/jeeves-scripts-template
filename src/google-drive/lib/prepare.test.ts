@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 
 import { SheetsConversionSchema, SyncEntrySchema } from './config.js';
@@ -106,14 +105,12 @@ describe('prepare (§3, §5, §8)', () => {
 });
 
 describe('xlsx conversion', () => {
-  it('renders every worksheet as a table', async () => {
-    const wb = new ExcelJS.Workbook();
-    wb.addWorksheet('Users').addRows([
-      ['Name', 'Age'],
-      ['Ada', 36],
-    ]);
-    wb.addWorksheet('Empty');
-    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  it('renders every worksheet as a table (dates, booleans, rich text, cached formula results)', async () => {
+    // fixtures/sample.xlsx: Users (4 rows, incl. a Date, booleans, a
+    // rich-text cell and a formula with a cached result) and an empty sheet.
+    const buf = fs.readFileSync(
+      path.join(import.meta.dirname, 'fixtures', 'sample.xlsx'),
+    );
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gdrive-xlsx-'));
     const client = fakeDrive({});
     client.downloadTo = (_id, out) => {
@@ -128,7 +125,19 @@ describe('xlsx conversion', () => {
       SheetsConversionSchema.parse({}),
     );
     expect(body).toBe(
-      '## Users\n\n| Name | Age |\n| --- | --- |\n| Ada | 36 |\n\n## Empty\n\n_(empty)_',
+      [
+        '## Users',
+        '',
+        '| Name | Age | Joined | Active |',
+        '| --- | --- | --- | --- |',
+        '| Ada | 36 | 2026-01-02T00:00:00.000Z | true |',
+        '| Pipe \\| name |  |  | false |',
+        '| Rich text | 72 |  |  |',
+        '',
+        '## Empty',
+        '',
+        '_(empty)_',
+      ].join('\n'),
     );
     fs.rmSync(dir, { recursive: true, force: true });
   });

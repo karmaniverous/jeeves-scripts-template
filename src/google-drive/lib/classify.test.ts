@@ -140,9 +140,14 @@ describe('sheets-md', () => {
     );
   });
 
-  it('flattens exceljs cell shapes', () => {
-    expect(cellText({ richText: [{ text: 'a' }, { text: 'b' }] })).toBe('ab');
-    expect(cellText({ formula: 'x', result: 3 })).toBe('3');
+  it('renders scalar cell values (Sheets API and read-excel-file)', () => {
+    expect(cellText('a')).toBe('a');
+    expect(cellText(3)).toBe('3');
+    expect(cellText(false)).toBe('false');
+    expect(cellText(new Date('2026-01-02T00:00:00Z'))).toBe(
+      '2026-01-02T00:00:00.000Z',
+    );
     expect(cellText(null)).toBe('');
+    expect(cellText({ unexpected: 1 })).toBe('');
   });
 });

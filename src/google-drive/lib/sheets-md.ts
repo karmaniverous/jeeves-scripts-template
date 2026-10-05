@@ -9,7 +9,11 @@
 
 import type { SheetsConversionConfig } from './config.js';
 
-/** Plain text for one cell value (Sheets API or exceljs shapes). */
+/**
+ * Plain text for one cell value. Both sources hand over scalars: the
+ * Sheets API (formatted values) and `read-excel-file` (string, number,
+ * boolean, `Date`; rich text flattened, formulas as their cached result).
+ */
 export function cellText(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -21,17 +25,6 @@ export function cellText(value: unknown): string {
     return String(value);
   }
   if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'object') {
-    const v = value as Record<string, unknown>;
-    if (Array.isArray(v.richText)) {
-      return v.richText
-        .map((r: unknown) => cellText((r as Record<string, unknown>).text))
-        .join('');
-    }
-    if ('result' in v) return cellText(v.result);
-    if ('text' in v) return cellText(v.text);
-    if ('error' in v) return cellText(v.error);
-  }
   return '';
 }
 

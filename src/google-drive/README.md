@@ -138,7 +138,7 @@ flowchart TD
 | Google Sheet | `…google-apps.spreadsheet` | Sheets API, every tab → `## <tab>` + table (sized from values; grid properties report a default 1000×26) |
 | Google Slides | `…google-apps.presentation` | Drive export `txt` |
 | PDF | `application/pdf` | `pdf-parse` |
-| Excel | `.xlsx` | `exceljs` → tables per worksheet |
+| Excel | `.xlsx` | `read-excel-file` → a `## <sheet>` table per worksheet; dates as ISO 8601, formulas as their cached result, rich text flattened |
 | Word, PowerPoint, ODF, RTF | `.docx .pptx .odt .ods .odp .rtf` | `officeparser` → Markdown |
 | Native text | `text/*`, JSON/XML/YAML/JS…, or a text extension | bytes as-is; invalid UTF-8 → skipped (`invalid-utf8`) |
 | Everything else | images, media, archives, Forms, Drawings, Sites, shortcuts… | skipped (`non-convertible`) |

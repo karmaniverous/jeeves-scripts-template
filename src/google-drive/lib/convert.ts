@@ -1,8 +1,8 @@
 /**
  * @module google-drive/lib/convert
  *
- * Materialise one Drive file as text (spec §5). Downloads land in the
- * staging directory (outside the content tree, spec §6.5); the caller
+ * Materialise one Drive file as text (spec Â§5). Downloads land in the
+ * staging directory (outside the content tree, spec Â§6.5); the caller
  * writes the returned text into place atomically.
  *
  * Permanent outcomes are signalled with `SkipError` (Drive export limit,
@@ -12,9 +12,9 @@
 
 import { readFileSync, rmSync } from 'node:fs';
 
-import ExcelJS from 'exceljs';
 import { convert as officeConvert } from 'officeparser';
 import { PDFParse } from 'pdf-parse';
+import readXlsxFile from 'read-excel-file/node';
 
 import type { ConversionKind } from './classify.js';
 import type { SheetsConversionConfig } from './config.js';
@@ -70,22 +70,20 @@ export function decodeUtf8(buf: Buffer, name: string): string {
   }
 }
 
+/**
+ * Every worksheet as a `## <sheet>` table (`read-excel-file`: cells come
+ * back as string, number, boolean, `Date` or `null`; empty rows are
+ * dropped by `renderTable`).
+ */
 async function xlsxToMarkdown(
   file: string,
   caps: SheetsConversionConfig,
 ): Promise<string> {
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.readFile(file);
-  const tabs: { title: string; rows: unknown[][] }[] = [];
-  wb.eachSheet((ws) => {
-    const rows: unknown[][] = [];
-    ws.eachRow({ includeEmpty: false }, (row) => {
-      const values = row.values as unknown[];
-      rows.push(values.slice(1)); // exceljs rows are 1-indexed.
-    });
-    tabs.push({ title: ws.name, rows });
-  });
-  return renderWorkbook(tabs, caps);
+  const sheets = await readXlsxFile(file);
+  return renderWorkbook(
+    sheets.map((s) => ({ title: s.sheet, rows: s.data })),
+    caps,
+  );
 }
 
 async function pdfToText(file: string): Promise<string> {

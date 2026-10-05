@@ -4,7 +4,7 @@
 
 **Changelog:**
 
-- v0.17: template review. Failed path or drive-name lookups count as enumeration errors, and a run with enumeration errors holds every move as well as every deletion (§4.3, §6.5). Names are sanitized for Windows as well as POSIX (§3.1) and renames retry Windows sharing violations. One run-wide `googleDrive.budget` replaces the per-sync budgets (§6.4, §8). The block is validated by the domain, not the shared config loader, so a mistake in it fails only this job (§8).
+- v0.17: template review. Failed path or drive-name lookups count as enumeration errors, and a run with enumeration errors holds every move as well as every deletion (§4.3, §6.5). Names are sanitized for Windows as well as POSIX (§3.1) and renames retry Windows sharing violations. One run-wide `googleDrive.budget` replaces the per-sync budgets (§6.4, §8). The block is validated by the domain, not the shared config loader, so a mistake in it fails only this job (§8). `.xlsx` is read with `read-excel-file` instead of `exceljs` (unmaintained, with open advisories via `uuid`) (§5).
 - v0.16: PR review hardening. Disjoint `targetDir`s and unique accounts (config error); symlinks refused in the owned tree; the content key is read before export; conversion-time skips leave the old copy for the next guarded plan; the planner reconciles the ledger against disk (lost copies re-download, completed moves adopted; moves persisted one by one); unseen records kept while deletions are blocked; no new syncs dispatched once the budget is spent; native text keeps a BOM.
 - v0.15: post-build corrections. VCS exclusion deferred (it also de-indexes via `respectGitignore`; jeeves-watcher#253). `targetDir` must be a strict subdirectory of `CONTENT_DIR`. Dot-entries in the owned tree are platform-owned and ignored. Module layout per the implementation (orchestrate/run-sync/report/seed-metas).
 - v0.14: jeeves-meta pre-implementation check (seed 409, 30-min stale lock, discovery cache); enumeration performance (batched parent queries).
@@ -244,7 +244,7 @@ Decided per file by MIME type, then extension. All tables are config with the de
 | Google Slides | `…google-apps.presentation` | Drive export `text/plain`, wrapped as Markdown with a slide heading per slide where separable |
 | PDF | `application/pdf` | `pdf-parse` (already a dependency, reuse `src/convert/` logic) |
 | Word | `.docx` | `mammoth` (already a dependency, reuse `src/convert/`) |
-| Excel | `.xlsx` | new dependency (e.g. `exceljs` or SheetJS) → tables per sheet |
+| Excel | `.xlsx` | `read-excel-file` → tables per sheet (dates as ISO 8601, formulas as their cached result) |
 | PowerPoint, ODF, RTF, legacy `.doc` | `.pptx .odt .ods .odp .rtf` | new dependency (e.g. `officeparser`) → text. Legacy `.doc/.xls/.ppt`: skip in v1 unless you want them |
 | Everything else | images, media, archives, Drawings, Forms, … | **skipped**, counted in the report |
 

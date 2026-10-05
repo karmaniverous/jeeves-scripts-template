@@ -44,6 +44,7 @@ Runner job manifests live in `jobs/` (one JSON file per domain). Scripts are org
 | `dispatchers/` | LLM session dispatch framework | [README](src/dispatchers/README.md) |
 | `email/` | Gmail polling, download, triage, classification | [README](src/email/README.md) |
 | `github/` | Repo sync, issue sync, notifications, collaborator management | [README](src/github/README.md) |
+| `google-drive/` | Mirror Drive items shared to the assistant into the content tree as text | [README](src/google-drive/README.md) |
 | `jira/` | Jira webhook drain, backfill, field metadata refresh | [README](src/jira/README.md) |
 | `linear/` | Linear webhook drain, polling sync, backfill | [README](src/linear/README.md) |
 | `lib/` | Shared infrastructure (constants, entity persistence, silo routing, CLI wrappers) | [README](src/lib/README.md) |
@@ -63,7 +64,7 @@ On a jeeves-tools-managed instance the repo is checked out at `/opt/jeeves/jeeve
 | Constants barrel | `src/lib/constants.ts` (values in `src/lib/constants/`; see [lib/](src/lib/README.md#constantsts)) |
 | Instance constants | `src/lib/constants/instance.ts` (`CONTENT_DIR`, `CREDENTIALS_DIR`, `PIPELINE_CONFIG_PATH`, gateway host and port) |
 | Integration constants | `src/lib/constants/integrations.ts` (GitHub, Google/gog, Slack, X, Notion) |
-| Pipeline config | `pipeline-config.json` (accounts, buckets, refs, emailConfig); gitignored, created from `pipeline-config.json.template` |
+| Pipeline config | `pipeline-config.json` (accounts, buckets, refs, emailConfig, googleDrive); gitignored, created from `pipeline-config.json.template` |
 | IMAP password files | `/opt/jeeves/config/credentials/imap/<secretRef>` (`IMAP_SECRETS_DIR`, under `CREDENTIALS_DIR`) |
 | Job manifests | `jobs/*.json` |
 | Shared lib | `src/lib/` |

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "google-drive-sync",
+    "name": "Google Drive Sync",
+    "script": "src/google-drive/sync.ts",
+    "args": ["--live"],
+    "schedule": { "freq": "minutely", "interval": 13, "timezone": "UTC" },
+    "description": "Mirror Google Drive files and folders shared to the assistant's Workspace account into the content tree as text, with change/delete/un-share propagation, a budgeted download queue, and meta seeding at share roots and share points.",
+    "overlap_policy": "skip",
+    "timeout_seconds": 720,
+    "enabled": true,
+    "domain": "google-drive",
+    "prerequisite": "googleDrive block in pipeline-config.json; sync account registered in gog (service-account mailbox); DWD grant covers gog's Drive + Sheets scopes (VCS exclusion deferred until jeeves-watcher#253: it would also de-index the mirror)"
+  }
+]

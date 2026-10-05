@@ -173,6 +173,12 @@ const PipelineConfigSchema = z.object({
   buckets: BucketsSchema,
   refs: z.record(z.string(), z.string()),
   emailConfig: EmailConfigSchema,
+  /**
+   * Google Drive sync block, kept raw here: the google-drive domain
+   * validates it (`src/google-drive/lib/config.ts`), so a mistake in it
+   * fails only the Drive job, never every job that loads this config.
+   */
+  googleDrive: z.unknown().optional(),
 });
 
 // ── Derived types ───────────────────────────────────────────────────

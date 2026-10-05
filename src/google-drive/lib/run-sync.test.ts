@@ -9,8 +9,9 @@ import type { DriveClient } from './drive-client.js';
 import { createRunBudget } from './execute.js';
 import { fakeDrive, file } from './fake-drive.test-helper.js';
 import { fakeRunner } from './fake-runner.test-helper.js';
+import type { RunnerState } from './ledger.js';
 import type { FetchLike } from './meta-seed.js';
-import { syncOne, type SyncOptions } from './run-sync.js';
+import { stagingDirFor, syncOne, type SyncOptions } from './run-sync.js';
 import { FOLDER_MIME } from './types.js';
 
 const cfg = SyncEntrySchema.parse({
@@ -55,7 +56,16 @@ function drive(shared: boolean, body = 'hello'): DriveClient {
 
 /** The meta service, simulated: creates `.meta/` and answers 201. */
 const seedFetch: FetchLike = (_url, init) => {
-  const { path: p } = JSON.parse(init.body as string) as { path: string };
+  const body: unknown =
+    typeof init.body === 'string' ? JSON.parse(init.body) : null;
+  const p =
+    body !== null &&
+    typeof body === 'object' &&
+    'path' in body &&
+    typeof body.path === 'string'
+      ? body.path
+      : null;
+  if (p === null) return Promise.resolve(new Response('', { status: 400 }));
   fs.mkdirSync(path.join(p, '.meta'), { recursive: true });
   return Promise.resolve(new Response('', { status: 201 }));
 };
@@ -81,10 +91,28 @@ function opts(
 const target = (): string => path.join(dir, 'content', 'google-drive');
 const tree = (): string[] =>
   fs.existsSync(target())
-    ? (fs.readdirSync(target(), { recursive: true }) as string[])
+    ? fs
+        .readdirSync(target(), { recursive: true, encoding: 'utf8' })
         .map((p) => p.split(path.sep).join('/'))
         .sort()
     : [];
+
+describe('stagingDirFor', () => {
+  it('places the account directly under the staging root', () => {
+    const root = path.resolve('/s');
+    expect(stagingDirFor(root, 'a@x.example')).toBe(
+      path.join(root, 'a@x.example'),
+    );
+  });
+
+  it('refuses anything that would resolve elsewhere (the dir is wiped)', () => {
+    for (const bad of ['../../content', '..', '.', 'a/b', 'a\\b', '']) {
+      expect(() => stagingDirFor(path.resolve('/s'), bad)).toThrow(
+        /not a safe staging directory name/,
+      );
+    }
+  });
+});
 
 describe('syncOne end to end', () => {
   it('dry run writes nothing anywhere', async () => {
@@ -141,6 +169,31 @@ describe('syncOne end to end', () => {
     expect(
       r.items.get('google-drive|files:assistant@example.com')?.size ?? 0,
     ).toBe(0);
+  });
+
+  it('an idle run writes nothing to the ledger; a change writes only the changed record', async () => {
+    const r = fakeRunner();
+    let puts = 0;
+    const counted: RunnerState = {
+      ...r.client,
+      setItem: (...args) => {
+        puts++;
+        r.client.setItem(...args);
+      },
+    };
+    await syncOne(cfg, counted, opts(drive(true), true));
+    expect(puts).toBeGreaterThan(0);
+
+    puts = 0;
+    await syncOne(cfg, counted, opts(drive(true), true));
+    expect(puts).toBe(0);
+
+    note.md5Checksum = 'v2';
+    await syncOne(cfg, counted, opts(drive(true, 'v2 body'), true));
+    note.md5Checksum = 'v1';
+    // The changed record: pending, then written. Nothing else.
+    expect(puts).toBeGreaterThan(0);
+    expect(puts).toBeLessThanOrEqual(2);
   });
 
   it('survives a failed enumeration: nothing deleted, and the recovery run keeps copies even with no budget', async () => {

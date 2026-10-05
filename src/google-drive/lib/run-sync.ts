@@ -9,8 +9,6 @@
 
 import path from 'node:path';
 
-import type { RunnerClient } from '@karmaniverous/jeeves-runner';
-
 import { CONTENT_DIR, JEEVES_BASE_DIR } from '../../lib/constants.js';
 import {
   assertNoSymlinks,
@@ -24,7 +22,11 @@ import { resolveTargetDir, type SyncEntryConfig } from './config.js';
 import { createDriveClient, type DriveClient } from './drive-client.js';
 import { enumerate } from './enumerate.js';
 import { type RunBudget, runQueue } from './execute.js';
-import { createLedgerStore } from './ledger.js';
+import {
+  createLedgerStore,
+  recordFingerprint,
+  type RunnerState,
+} from './ledger.js';
 import type { FetchLike } from './meta-seed.js';
 import { plan } from './plan.js';
 import { prepare } from './prepare.js';
@@ -48,9 +50,32 @@ export interface SyncOptions {
   now?: () => Date;
 }
 
+/**
+ * The account's staging directory: exactly one level below `stagingRoot`.
+ * It is wiped at startup, so an account that would resolve anywhere else
+ * (config validation already requires a plain mailbox) is refused.
+ *
+ * @throws When `account` doesn't name a direct child of `stagingRoot`.
+ */
+export function stagingDirFor(stagingRoot: string, account: string): string {
+  const root = path.resolve(stagingRoot);
+  const dir = path.resolve(root, account);
+  // Reject both separators on every platform ('\' is a filename char on POSIX).
+  if (
+    /[\\/]/.test(account) ||
+    path.dirname(dir) !== root ||
+    path.basename(dir) !== account
+  ) {
+    throw new Error(
+      `google-drive: account "${account}" is not a safe staging directory name under ${root}`,
+    );
+  }
+  return dir;
+}
+
 export async function syncOne(
   cfg: SyncEntryConfig,
-  runner: RunnerClient,
+  runner: RunnerState,
   opts: SyncOptions,
 ): Promise<SyncSummary> {
   const summary = emptySummary(cfg.account, opts.live);
@@ -73,6 +98,11 @@ export async function syncOne(
     .map((s) => s.id);
 
   const ledger = store.load();
+  // Serialized as loaded, before anything can mutate a record: the write
+  // step persists only records that actually changed (spec §6.2).
+  const loaded = new Map(
+    [...ledger].map(([id, rec]) => [id, recordFingerprint(rec)]),
+  );
   const prepared = prepare(snapshot, ledger, client, cfg, targetDir);
   assertNoSymlinks(opts.contentDir ?? CONTENT_DIR, targetDir);
   const scan = scanTree(targetDir);
@@ -94,19 +124,25 @@ export async function syncOne(
   const stagingRoot =
     opts.stagingRoot ??
     path.join(JEEVES_BASE_DIR, 'state', 'google-drive', 'tmp');
-  const stagingDir = path.join(stagingRoot, cfg.account);
+  const stagingDir = stagingDirFor(stagingRoot, cfg.account);
   prepareStaging(stagingDir, targetDir);
 
   deleteFiles(targetDir, p.fileDeletes);
+  const persisted = new Set<string>();
   for (const m of p.moves) {
     moveFile(targetDir, m.from, m.to);
     const rec = p.records.get(m.id);
     if (rec) {
       rec.localPath = m.to;
       store.put(m.id, rec); // per move: an interruption loses at most this one
+      persisted.add(m.id);
     }
   }
-  for (const [id, rec] of p.records) store.put(id, rec);
+  // New or changed records only: an idle run writes nothing to the ledger.
+  for (const [id, rec] of p.records) {
+    if (!persisted.has(id) && loaded.get(id) !== recordFingerprint(rec))
+      store.put(id, rec);
+  }
   for (const id of p.ledgerRemovals) store.remove(id);
 
   Object.assign(

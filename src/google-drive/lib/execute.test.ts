@@ -238,7 +238,9 @@ describe('runQueue (§6.4)', () => {
       mimeType: 'application/vnd.google-apps.document',
       modifiedTime: 't1',
     });
-    c.files.set('a', { ...(c.files.get('a') as SnapshotFile), file: native });
+    const base = c.files.get('a');
+    if (!base) throw new Error('fixture: ctx() seeds file a');
+    c.files.set('a', { ...base, file: native });
     c.kinds.set('a', { kind: 'gdoc', namingClass: 'google-native' });
     c.queue = [{ id: 'a', isUpdate: false }];
     let rev = '7';

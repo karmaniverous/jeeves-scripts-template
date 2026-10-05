@@ -17,13 +17,18 @@
  */
 
 import { runScript } from '@karmaniverous/jeeves';
-import { getRunnerClient } from '@karmaniverous/jeeves-runner';
+import {
+  getRunnerClient,
+  type RunnerClient,
+} from '@karmaniverous/jeeves-runner';
 
 import { CONTENT_DIR } from '../lib/constants.js';
 import {
   assertDisjointTargets,
+  type BudgetConfig,
   BudgetConfigSchema,
   loadGoogleDriveConfig,
+  type SyncEntryConfig,
 } from './lib/config.js';
 import { createRunBudget } from './lib/execute.js';
 import { createLedgerStore } from './lib/ledger.js';
@@ -43,17 +48,30 @@ runScript('google-drive/sync', async () => {
   }
 
   const runner = getRunnerClient();
-
-  if (argv.includes('--reset-state')) {
-    for (const s of syncs) {
-      const n = createLedgerStore(runner, s.account, live).reset();
-      console.log(
-        `${live ? 'RESET' : 'WOULD RESET'} ${s.account}: ${String(n)} ledger records`,
-      );
+  try {
+    if (argv.includes('--reset-state')) {
+      for (const s of syncs) {
+        const n = createLedgerStore(runner, s.account, live).reset();
+        console.log(
+          `${live ? 'RESET' : 'WOULD RESET'} ${s.account}: ${String(n)} ledger records`,
+        );
+      }
+      return;
     }
-    return;
+    await sync(runner, syncs, live, config?.budget, argv);
+  } finally {
+    runner.close();
   }
+});
 
+/** The sync proper: SIGTERM handling, the run budget, the run report. */
+async function sync(
+  runner: RunnerClient,
+  syncs: SyncEntryConfig[],
+  live: boolean,
+  limits: BudgetConfig | undefined,
+  argv: string[],
+): Promise<void> {
   let stop = false;
   process.on('SIGTERM', () => {
     stop = true;
@@ -63,7 +81,7 @@ runScript('google-drive/sync', async () => {
   // One budget for the whole run, on the same clock as the runner's
   // timeout (process start). A synthesized dry-run entry uses the defaults.
   const budget = createRunBudget(
-    config?.budget ?? BudgetConfigSchema.parse({}),
+    limits ?? BudgetConfigSchema.parse({}),
     Date.now() - process.uptime() * 1000,
   );
 
@@ -79,4 +97,4 @@ runScript('google-drive/sync', async () => {
 
   console.log(`JR_RESULT:${JSON.stringify({ meta: compactMeta(summaries) })}`);
   process.exitCode = exitCodeFor(summaries);
-});
+}

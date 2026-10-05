@@ -18,6 +18,18 @@ import { z } from 'zod';
 
 export const NAMESPACE = 'google-drive';
 
+/** The slice of the runner client the sync uses: state rows and their items. */
+export type RunnerState = Pick<
+  RunnerClient,
+  | 'getState'
+  | 'setState'
+  | 'deleteState'
+  | 'getItem'
+  | 'setItem'
+  | 'deleteItem'
+  | 'listItemKeys'
+>;
+
 export const SkipReasonSchema = z.enum([
   'non-convertible',
   'oversize',
@@ -49,6 +61,27 @@ export const LedgerRecordSchema = z.object({
   shareIds: z.array(z.string()),
 });
 export type LedgerRecord = z.infer<typeof LedgerRecordSchema>;
+
+/** `value` with object keys sorted at every level, for order-free comparison. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([k, v]) => [k, canonical(v)]),
+    );
+  }
+  return value;
+}
+
+/**
+ * A key-order-independent serialization of a record: two records with the
+ * same content serialize identically, so unchanged records can be skipped.
+ */
+export function recordFingerprint(record: LedgerRecord): string {
+  return JSON.stringify(canonical(record));
+}
 
 /** A blank record for a newly seen file. */
 export function emptyRecord(): LedgerRecord {
@@ -86,7 +119,7 @@ function parseJson(raw: string): unknown {
 }
 
 export function createLedgerStore(
-  client: RunnerClient,
+  client: RunnerState,
   account: string,
   live: boolean,
 ): LedgerStore {

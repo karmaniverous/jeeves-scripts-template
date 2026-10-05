@@ -41,7 +41,10 @@ export function renameWithRetry(
       fs.renameSync(from, to);
       return;
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code ?? '';
+      const code =
+        err instanceof Error && 'code' in err && typeof err.code === 'string'
+          ? err.code
+          : '';
       if (!retry || i >= attempts || !TRANSIENT_RENAME_CODES.has(code))
         throw err;
       sleepSync(baseMs * 2 ** (i - 1));

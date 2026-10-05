@@ -8,8 +8,7 @@ import { MetaSyncConfigSchema } from './config.js';
 import { defaultSteer, type FetchLike, seedMeta } from './meta-seed.js';
 import { plan } from './plan.js';
 import { input, item, written } from './plan.test-helper.js';
-import type { Prepared } from './prepare.js';
-import { planLines, planSummary } from './report.js';
+import { planLines, planSummary, type ReportInput } from './report.js';
 import { seedShareMetas } from './seed-metas.js';
 import { compactMeta, emptySummary, exitCodeFor } from './summary.js';
 
@@ -19,7 +18,9 @@ describe('meta seeding (§7.3)', () => {
   ): { fetchFn: FetchLike; bodies: unknown[] } => {
     const bodies: unknown[] = [];
     const fetchFn: FetchLike = (_url, init) => {
-      bodies.push(JSON.parse(init.body as string));
+      const body: unknown =
+        typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+      bodies.push(body);
       return Promise.resolve(new Response('nope', { status }));
     };
     return { fetchFn, bodies };
@@ -97,10 +98,10 @@ describe('report', () => {
         shareDirs: [{ shareId: 'x', rootDir: 'r', sharePointDir: 'r' }],
       }),
     );
-    const prepared = {
+    const prepared: ReportInput = {
       items: [item('n', 'r/n.md'), item('u', 'r/u.md')],
       excluded: 2,
-    } as unknown as Prepared;
+    };
     expect(planSummary(prepared, p)).toMatchObject({
       files: 2,
       excluded: 2,

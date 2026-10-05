@@ -62,7 +62,7 @@ Optional `googleDrive` block in `pipeline-config.json`. The shared config loader
 | `budget.maxSeconds` | 360 | Time budget for the run, measured from process start. Once it's spent, no further download starts and remaining syncs are not started; they keep their older `lastRunAt` and go first next run. Keep ≤ the job's `timeout_seconds` (720) − 60 |
 | `budget.maxItems` / `maxBytes` | `null` | Optional limits on downloads attempted / bytes written, counted across all syncs in the run |
 | `budget.maxAttempts` | 5 | Failures before an item is parked |
-| `syncs[].account` | required | Workspace mailbox registered in gog that the sync reads as. Unique across `syncs` (it keys the ledger) |
+| `syncs[].account` | required | Workspace mailbox registered in gog that the sync reads as. Unique across `syncs` (it keys the ledger). Must be a plain `local@domain` address: it also names the account's staging directory, which is wiped at startup, so anything containing a path separator or starting with a dot is rejected |
 | `targetDir` | `google-drive` | Relative to `CONTENT_DIR`, or absolute. Must resolve to a **strict subdirectory** of `CONTENT_DIR` (never `CONTENT_DIR` itself, never outside it), and must not equal or nest with another sync's `targetDir` (the default is shared, so a second sync needs its own). The sync owns and prunes that tree, so never write anything else there |
 | `pathResolution.impersonate` | `true` | Impersonate owners/sharers (metadata only) to recover folder paths |
 | `pathResolution.domains` | `[]` | Domains the DWD key covers; owners/sharers outside them are "external" |
@@ -197,7 +197,7 @@ JR_DB_PATH=… npx tsx src/google-drive/sync.ts --live
 
 **Exit codes.** Non-zero fires the job's `on_failure` alert and is reserved for what needs a human: invalid config, auth or enumeration failure (crash, exit 1), and a **tripped mass-deletion guard or enumeration errors** (exit 2). Parked items, unresolved paths, held locks and skips are warnings in the summary (exit 0).
 
-**Timeouts.** The job has `timeout_seconds: 720`. On `SIGTERM` the script takes no new queue items and finishes the current one; ledger records are written per item (and per move), so a hard kill loses at most the in-flight item. The planner trusts the disk over the ledger: a recorded copy that's missing is downloaded again, and a copy already at its new path is adopted rather than moved. Native text keeps a UTF-8 BOM if it has one.
+**Timeouts.** The job has `timeout_seconds: 720`. On `SIGTERM` the script takes no new queue items and finishes the current one; ledger records are written per item (and per move), and only when they change (an idle run writes nothing), so a hard kill loses at most the in-flight item. The planner trusts the disk over the ledger: a recorded copy that's missing is downloaded again, and a copy already at its new path is adopted rather than moved. Native text keeps a UTF-8 BOM if it has one.
 
 ## Safety
 

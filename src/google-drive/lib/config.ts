@@ -18,6 +18,14 @@ import { z } from 'zod';
 
 import { loadPipelineConfig } from '../../lib/pipeline-config.js';
 
+/**
+ * A mailbox address that is also a safe single path segment: the account
+ * names its staging directory (which is wiped at startup) and keys the
+ * ledger, so no separators, no `..`, no leading dot.
+ */
+export const ACCOUNT_PATTERN =
+  /^[A-Za-z0-9_+-][A-Za-z0-9._+-]*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
+
 export const PathResolutionSchema = z.object({
   /** Impersonate owners/sharers in delegated domains to resolve paths (§4.2). */
   impersonate: z.boolean().default(true),
@@ -82,7 +90,10 @@ export type BudgetConfig = z.infer<typeof BudgetConfigSchema>;
 
 export const SyncEntrySchema = z.object({
   /** The Workspace mailbox registered in gog that the sync reads as. */
-  account: z.string().min(1),
+  account: z.string().regex(ACCOUNT_PATTERN, {
+    error:
+      'googleDrive.syncs[].account must be a mailbox address (local@domain): it names the staging directory and keys the ledger',
+  }),
   /** Relative to CONTENT_DIR, or absolute and under it. */
   targetDir: z.string().min(1).default('google-drive'),
   pathResolution: PathResolutionSchema.prefault({}),

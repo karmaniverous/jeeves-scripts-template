@@ -6,10 +6,10 @@
  * throws, so reset ordering is exercised.
  */
 
-import type { RunnerClient } from '@karmaniverous/jeeves-runner';
+import type { RunnerState } from './ledger.js';
 
 export interface FakeRunner {
-  client: RunnerClient;
+  client: RunnerState;
   state: Map<string, string | null>;
   items: Map<string, Map<string, string>>;
 }
@@ -26,7 +26,7 @@ export function fakeRunner(): FakeRunner {
     }
     return b;
   };
-  const client = {
+  const client: RunnerState = {
     getState: (ns: string, key: string) => state.get(k(ns, key)) ?? null,
     setState: (ns: string, key: string, value: string) => {
       state.set(k(ns, key), value);
@@ -50,5 +50,5 @@ export function fakeRunner(): FakeRunner {
       ...(items.get(k(ns, key))?.keys() ?? []),
     ],
   };
-  return { client: client as unknown as RunnerClient, state, items };
+  return { client, state, items };
 }

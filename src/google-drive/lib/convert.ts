@@ -1,8 +1,8 @@
 /**
  * @module google-drive/lib/convert
  *
- * Materialise one Drive file as text (spec Â§5). Downloads land in the
- * staging directory (outside the content tree, spec Â§6.5); the caller
+ * Materialise one Drive file as text (spec §5). Downloads land in the
+ * staging directory (outside the content tree, spec §6.5); the caller
  * writes the returned text into place atomically.
  *
  * Permanent outcomes are signalled with `SkipError` (Drive export limit,

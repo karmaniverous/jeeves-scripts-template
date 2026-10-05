@@ -241,11 +241,11 @@ Decided per file by MIME type, then extension. All tables are config with the de
 | Native text | `text/*`, `application/json`, `application/xml`, `application/x-yaml`, `application/javascript`, … plus an extension allowlist (`.md .txt .ts .py .sql .csv .yaml …`) for `application/octet-stream` uploads | download bytes as-is; not valid UTF-8 → skipped (`invalid-utf8`) |
 | Google Doc | `application/vnd.google-apps.document` | Drive export `text/markdown` (`gog drive download --format md`) |
 | Google Sheet | `…google-apps.spreadsheet` | Sheets API values per tab → one `##` section + Markdown table per tab (Drive's CSV export only returns the first tab). Size each table from the **returned values**: `gridProperties` reports the default 1000×26 grid, not the data extent. Rows come back ragged (trailing empty cells omitted), so pad to the widest row. Caps: `conversion.sheets.maxRowsPerTab` (default 5,000) and `maxCellChars` (default 2,000); truncation is noted in the output |
-| Google Slides | `…google-apps.presentation` | Drive export `text/plain`, wrapped as Markdown with a slide heading per slide where separable |
-| PDF | `application/pdf` | `pdf-parse` (already a dependency, reuse `src/convert/` logic) |
-| Word | `.docx` | `mammoth` (already a dependency, reuse `src/convert/`) |
+| Google Slides | `…google-apps.presentation` | Drive export `text/plain` (`gog drive download --format txt`), written as-is, with no per-slide headings |
+| PDF | `application/pdf` | `pdf-parse` (already a dependency; the domain's own `pdfToText` in `lib/convert.ts`) |
+| Word | `.docx` | `officeparser` → Markdown (the same path as the other Office formats; `mammoth` is not used here) |
 | Excel | `.xlsx` | `read-excel-file` → tables per sheet (dates as ISO 8601, formulas as their cached result) |
-| PowerPoint, ODF, RTF, legacy `.doc` | `.pptx .odt .ods .odp .rtf` | new dependency (e.g. `officeparser`) → text. Legacy `.doc/.xls/.ppt`: skip in v1 unless you want them |
+| PowerPoint, ODF, RTF | `.pptx .odt .ods .odp .rtf` | `officeparser` → Markdown (OCR off). Legacy `.doc/.xls/.ppt` are skipped |
 | Everything else | images, media, archives, Drawings, Forms, … | **skipped**, counted in the report |
 
 - Converted output gets YAML frontmatter: `source: google-drive`, `driveFileId`, `driveUrl`, `mimeType`, `owner`, `sharedBy`, `modifiedTime`, `drivePath`. Native text files are written byte-for-byte with **no** frontmatter (it would corrupt code/config); their provenance lives in the sync state.
@@ -273,8 +273,8 @@ One ledger record per Drive file _in the snapshot_, both written and pending:
   "localPath": "alice@example.com/a - k3v7q2xm/b - p5zr2a7d/c - m2xq7b4n.txt",
   "written": {
     "contentKey": "md5:…",
-    "version": "42",
-    "class": "native-text",
+    "modifiedTime": "…",
+    "kind": "text",
     "at": "…"
   },
   "skipped": null,
@@ -282,15 +282,16 @@ One ledger record per Drive file _in the snapshot_, both written and pending:
   "attempts": 0,
   "lastError": null,
   "retryAfter": null,
-  "parked": false,
+  "parked": null,
   "pathResolved": true,
   "shareIds": ["<shared file or folder id>"]
 }
 ```
 
-- `written` is null until the first successful write. `contentKey` is the change-detection key (§6.2): `md5:<md5Checksum>` for blobs; for Google-native files `rev:<latest revision id>` when revisions are readable, else `mt:<modifiedTime>`. The record also keeps `modifiedTime` as `written.modifiedTime`, the cheap first-stage filter. `version` is kept for logging only. The derived queue (§6.4) is "snapshot items whose remote content key ≠ `written.contentKey`, and which aren't skipped or parked".
+- `written` is null until the first successful write. `contentKey` is the change-detection key (§6.2): `md5:<md5Checksum>` for blobs; for Google-native files `rev:<latest revision id>` when revisions are readable, else `mt:<modifiedTime>`. The record also keeps `modifiedTime` as `written.modifiedTime`, the cheap first-stage filter, and the conversion `kind` (`text`, `pdf`, `gdoc`, …) it was written with. The schema is `LedgerRecordSchema` in `lib/ledger.ts`. The derived queue (§6.4) is "snapshot items whose remote content key ≠ `written.contentKey`, and which aren't skipped or parked".
+- `parked`: `null`, or `{ "key": "<content key>" }` once an item has failed `budget.maxAttempts` times. A parked item is retried only when its content key changes.
 - `skipped`: `null` or one of `non-convertible`, `oversize`, `export-limit`, `invalid-utf8`, `path-too-long`, with the content key it applied to. A skipped item stays in the ledger and is re-evaluated only when its content key changes, so skip decisions aren't re-downloaded every run.
-- Each run loads the whole ledger (`listItemKeys` + `getItem`; local SQLite, so thousands of records cost milliseconds), diffs it in memory, and writes back only the records that changed. Records for items that left the snapshot are deleted (`deleteItem`) once their local file is gone.
+- Each run loads the whole ledger (`listItemKeys` + `getItem`; local SQLite, so thousands of records cost milliseconds), diffs it in memory, and writes back only the records that changed (compared key-order-independently), so an idle run writes nothing. Moves and downloads persist their record immediately, one at a time. Records for items that left the snapshot are deleted (`deleteItem`) once their local file is gone.
 - What is **not** stored: the remote tree (rebuilt every run), seeded metas (a `.meta/` on disk is the truth), and the queue itself (derived).
 
 **Losing the state is safe.** With an empty ledger, every snapshot item looks new: the sync re-downloads everything (budgeted), overwriting the same paths, and the owned-tree rule (§6.5) prunes any file or directory outside the tree. Cost: one full re-download. Data: none lost. Forcing a full refresh: `sync.ts --reset-state [--account <acct>]`. A plain `deleteState` **does not work**: `state_items` has a foreign key to `state` with no `ON DELETE CASCADE`, and the runner enforces foreign keys, so deleting the parent row while items exist fails. No runner tool clears a collection either. `--reset-state` therefore `deleteItem`s every key from `listItemKeys`, then `deleteState`s the parent and the run summary. It refuses to run without `--live` (dry run prints the count).
@@ -334,7 +335,7 @@ An item that is no longer shared with the sync account is deleted locally, exact
 | Item un-shared through one path but still reachable through another (direct share + folder share, or group membership) | **kept**. It is still in the snapshot, and the path is recomputed if its share changed |
 
 - Shares made to a Google Group the account belongs to count as shares; losing group membership counts as an un-share.
-- `shareIds` in state records which shares make each item reachable, so the run report can say _why_ something was removed ("folder `a/b` un-shared by alice@…") instead of just "gone".
+- `shareIds` in state records which shares make each item reachable, for diagnosing why an item is (or was) mirrored. The run report lists removals by path only; it doesn't attribute them to a share.
 - Un-share deletions count toward the mass-deletion guard (§6.5). Un-sharing a large folder that trips the guard gets reported, and the deletions wait until the next run or an explicit `--allow-mass-delete` run.
 - If the optional `changes.list` fast path (§6.3) is ever added, lost access shows up as `removed: true` / no `file` on the change and maps to the same delete action. The periodic full reconcile still backstops it.
 - Directories and `.meta/`s left without any providing share are removed with their branch (§7).
@@ -366,7 +367,7 @@ No queue entries are ever edited, deduplicated or invalidated, because none are 
 
 **Multiple syncs.** `syncs[]` entries run sequentially in one process and share the run budget. They run oldest `lastRunAt` first (stored in the run-summary state); once the budget is spent no further sync starts, and the skipped ones keep their older `lastRunAt` and go first next run, so none starves.
 
-**Timeout and SIGTERM.** The manifest sets `timeout_seconds: 720`. On timeout the runner sends `SIGTERM`, then `SIGKILL` 5 s later. The script handles `SIGTERM` by taking no new items, abandoning any in-flight temp file, writing the run summary, and exiting within that window. Ledger records are written per item as each one completes, so even a hard kill loses at most the in-flight item, which is simply re-fetched next run.
+**Timeout and SIGTERM.** The manifest sets `timeout_seconds: 720`. On timeout the runner sends `SIGTERM`, then `SIGKILL` 5 s later. The script handles `SIGTERM` by finishing the item in flight, taking no new items or syncs, writing the run summary, and exiting. An item that can't finish inside the 5 s window is lost to `SIGKILL` with its staged temp file, which the next run's staging wipe removes. Ledger records are written per item as each one completes, so even a hard kill loses at most the in-flight item, which is simply re-fetched next run.
 
 **Order** _(confirmed)_. (1) Updates to files that already have a local copy, oldest `pendingSince` first, because a stale copy is worse than a missing one and these are usually few. (2) New files, newest `modifiedTime` first, so a large initial share doesn't hold up what people are working on today. Items in `retryAfter` backoff are skipped.
 

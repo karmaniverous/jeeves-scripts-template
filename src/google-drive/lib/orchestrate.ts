@@ -7,11 +7,10 @@
  */
 
 import { getArg } from '@karmaniverous/jeeves';
-import type { RunnerClient } from '@karmaniverous/jeeves-runner';
 
 import { type SyncEntryConfig, SyncEntrySchema } from './config.js';
 import { budgetExhausted } from './execute.js';
-import { createLedgerStore } from './ledger.js';
+import { createLedgerStore, type RunnerState } from './ledger.js';
 import { syncOne, type SyncOptions } from './run-sync.js';
 import type { SyncSummary } from './summary.js';
 
@@ -51,7 +50,7 @@ export type RunOptions = Omit<SyncOptions, 'log'> & {
 /** Run every sync, oldest last run first; save each run state as it finishes. */
 export async function runSyncs(
   syncs: SyncEntryConfig[],
-  runner: RunnerClient,
+  runner: RunnerState,
   opts: RunOptions,
   syncFn: typeof syncOne = syncOne,
 ): Promise<SyncSummary[]> {

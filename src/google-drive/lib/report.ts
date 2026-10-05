@@ -14,9 +14,12 @@ import type { SyncSummary } from './summary.js';
 /** Runner-state cap on the blocked-deletion list. */
 export const MAX_BLOCKED_LISTED = 500;
 
+/** The parts of a prepared snapshot the report reads. */
+export type ReportInput = Pick<Prepared, 'items' | 'excluded'>;
+
 /** Summary fields determined by the plan alone. */
 export function planSummary(
-  prepared: Prepared,
+  prepared: ReportInput,
   p: Plan,
 ): Pick<
   SyncSummary,
@@ -57,7 +60,7 @@ export function planSummary(
 }
 
 /** One line per planned action, in apply order. */
-export function planLines(prepared: Prepared, p: Plan): string[] {
+export function planLines(prepared: ReportInput, p: Plan): string[] {
   const pathOf = new Map(prepared.items.map((i) => [i.id, i.desiredPath]));
   const lines: string[] = [];
   for (const m of p.moves) lines.push(`MOVE ${m.from} -> ${m.to}`);

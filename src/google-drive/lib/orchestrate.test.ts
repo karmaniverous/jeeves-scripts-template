@@ -198,13 +198,39 @@ describe('config', () => {
       assertDisjointTargets([a, b], '/c');
     }).toThrow(/overlapping/); // both default to google-drive
     expect(() => {
-      assertDisjointTargets([at('a@x', 'g'), at('b@x', 'g/b')], '/c');
+      assertDisjointTargets(
+        [at('a@x.example', 'g'), at('b@x.example', 'g/b')],
+        '/c',
+      );
     }).toThrow(/overlapping/);
     expect(() => {
       assertDisjointTargets(
-        [at('a@x', 'g/a'), at('b@x', 'g/b'), at('c@x', 'ga')],
+        [
+          at('a@x.example', 'g/a'),
+          at('b@x.example', 'g/b'),
+          at('c@x.example', 'ga'),
+        ],
         '/c',
       );
     }).not.toThrow();
+  });
+
+  it('requires the account to be a plain mailbox (it names a wiped staging dir)', () => {
+    for (const ok of ['assistant@example.com', 'a.b+c_d-e@x.example']) {
+      expect(SyncEntrySchema.parse({ account: ok }).account).toBe(ok);
+    }
+    for (const bad of [
+      '../../content',
+      'a/b@x.example',
+      'a\\b@x.example',
+      '.hidden@x.example',
+      'no-domain',
+      'a@localhost',
+      '',
+    ]) {
+      expect(() => SyncEntrySchema.parse({ account: bad })).toThrow(
+        /must be a mailbox address/,
+      );
+    }
   });
 });

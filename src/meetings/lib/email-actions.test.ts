@@ -74,3 +74,33 @@ describe('enqueueMeetingEmailActions', () => {
     expect(client.enqueue).not.toHaveBeenCalled();
   });
 });
+
+describe('meetingEmailActions with archive off', () => {
+  it('labels an inbox message without archiving it', () => {
+    expect(
+      meetingEmailActions(ref(['INBOX']), { archive: false }).map(
+        (a) => a.action,
+      ),
+    ).toEqual(['addLabel']);
+  });
+
+  it('archives by default when the option is omitted', () => {
+    expect(
+      meetingEmailActions(ref(['INBOX']), {}).map((a) => a.action),
+    ).toEqual(['addLabel', 'archive']);
+  });
+
+  it('enqueues only the label when archive is off', () => {
+    const client = { enqueue: vi.fn(() => 1) };
+    expect(
+      enqueueMeetingEmailActions(client, ref(['INBOX']), false, {
+        archive: false,
+      }),
+    ).toBe(1);
+    expect(client.enqueue).toHaveBeenCalledTimes(1);
+    expect(client.enqueue).toHaveBeenCalledWith(
+      EMAIL_UPDATES_QUEUE,
+      expect.objectContaining({ action: 'addLabel', label: 'meeting' }),
+    );
+  });
+});

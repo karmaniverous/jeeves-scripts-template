@@ -2,8 +2,9 @@
  * @module rate-card-seed
  *
  * Seed-if-missing for the token rate card. Fresh instances have no
- * token-rates.json, and the refresh-token-rates worker only verifies
- * models already in the card, so it can't bootstrap one. The template
+ * token-rates.json, and refresh-token-rates only refreshes models already
+ * in the card (plus pending ids recorded by the collector), so it can't
+ * bootstrap a whole card from nothing. The template
  * ships a seed card (config/token-rates.seed.json) that is copied into
  * place when, and only when, no rate card exists. A live card is never
  * overwritten, even if it is invalid.

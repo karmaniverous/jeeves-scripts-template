@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
 import { mergeUsage, tsToHour } from './bucket-io.js';
 import { listCCSessionFiles, parseCCLine } from './claude-code-scanner.js';
+import { jsonlLines, ResumeCursor } from './jsonl-cursor.js';
 import { normalizeUsage } from './usage-parser.js';
 
 /** Options for a Claude Code scan. */
@@ -61,24 +62,27 @@ export function scanClaudeCodeSessions(
 
     const startOffset = options.countedOnly ? 0 : stored;
     const endOffset = options.countedOnly ? stored : Infinity;
-    const allLines = fs.readFileSync(ccFile.filePath, 'utf8').split('\n');
+    const content = fs.readFileSync(ccFile.filePath, 'utf8');
 
-    let bytePos = 0;
     let maxProcessedTs = cursor?.lastTimestamp ?? 0;
+    const resume = new ResumeCursor(startOffset);
 
-    for (const line of allLines) {
-      const lineStart = bytePos;
-      bytePos += Buffer.byteLength(line, 'utf8') + 1;
+    for (const line of jsonlLines(content, startOffset, endOffset)) {
+      resume.reach(line);
+      if (!line.text.trim()) continue;
 
-      if (lineStart < startOffset) continue;
-      if (lineStart >= endOffset) break;
-      if (!line.trim()) continue;
-
-      const record = parseCCLine(line);
+      const record = parseCCLine(line.text);
       if (!record) continue;
 
       if (record.tsMs < fromMs) continue;
-      if (record.tsMs >= cutoffMs) continue;
+      if (record.tsMs >= cutoffMs) {
+        // Recounting already-counted bytes: just skip. Otherwise stop here;
+        // this record and everything after it are counted once the hour closes.
+        if (options.countedOnly) continue;
+        resume.stopAt(line);
+        break;
+      }
+      resume.consume(line);
 
       seenModels.add(record.modelKey);
       const usage = normalizeUsage(
@@ -103,7 +107,7 @@ export function scanClaudeCodeSessions(
 
     if (!options.countedOnly)
       ccCursors[ccFile.cursorKey] = {
-        byteOffset: stat.size,
+        byteOffset: resume.offset,
         lastTimestamp: maxProcessedTs,
       };
     ccProcessed++;

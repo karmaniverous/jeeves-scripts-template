@@ -26,7 +26,8 @@
  * Config dependencies: OPENCLAW_AGENT_DB_PATH, SESSIONS_DIR,
  * CLAUDE_CODE_PROJECTS_DIR, TOKEN_METRICS_DIR, TOKEN_METRICS_NAMESPACE,
  * TOKEN_METRICS_CURSOR_KEY, TOKEN_METRICS_DB_CURSOR_KEY,
- * TOKEN_METRICS_CC_CURSOR_KEY, TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH,
+ * TOKEN_METRICS_CC_CURSOR_KEY, TOKEN_RATES_PATH, TOKEN_RATES_PENDING_PATH,
+ * TOKEN_RATES_SEED_PATH,
  * SLACK_DM_NAMES_CACHE_PATH, SLACK_USERS_PATH from constants.ts.
  */
 
@@ -40,6 +41,7 @@ import {
   SLACK_DM_NAMES_CACHE_PATH,
   SLACK_USERS_PATH,
   TOKEN_RATES_PATH,
+  TOKEN_RATES_PENDING_PATH,
   TOKEN_RATES_SEED_PATH,
 } from '../lib/constants.js';
 import { currentHourBoundaryMs, flushBuckets } from './lib/bucket-io.js';
@@ -48,15 +50,27 @@ import { runCollect } from './lib/collect-run.js';
 import { applyDmNames, gatewayMemberName } from './lib/dm-name-sources.js';
 import { hasOpenClawBuckets } from './lib/fresh-openclaw-history.js';
 import { loadRateCard } from './lib/rate-card.js';
+import { addPendingModels } from './lib/rate-card-pending.js';
 import { ensureRateCard } from './lib/rate-card-seed.js';
 import { scanAllSessions } from './lib/session-scanner.js';
 import { openTokenMetricsState } from './lib/token-metrics-state.js';
 
 /**
- * Trigger the rate card refresh job via the runner HTTP API.
+ * Record the unknown models as pending (refresh-token-rates adds them from
+ * OpenRouter), then trigger the refresh job via the runner HTTP API.
  * Fire-and-forget — the collector doesn't wait for it to complete.
+ *
+ * @param unknownModels - Model ids missing from the rate card.
  */
-function triggerRateCardRefresh(): void {
+function triggerRateCardRefresh(unknownModels: string[]): void {
+  try {
+    addPendingModels(TOKEN_RATES_PENDING_PATH, unknownModels);
+  } catch (err: unknown) {
+    console.error(
+      '[collect-token-metrics] Could not record pending models:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   try {
     const url = 'http://127.0.0.1:1937/jobs/refresh-token-rates/trigger';
     fetch(url, { method: 'POST' }).catch(() => {

@@ -9,7 +9,6 @@
  * runner-state index so downstream steps can discover packages.
  */
 
-import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,8 +16,6 @@ import { ensureDir, nowIso, readJson } from '@karmaniverous/jeeves';
 import type { RunnerClient } from '@karmaniverous/jeeves-runner';
 
 import { DEFAULT_MEETINGS_DIR } from '../../lib/constants.js';
-import { GOG } from '../../lib/gog.js';
-import { getRef } from '../../lib/pipeline-config.js';
 import { getBasePathForEmailDomain } from '../../lib/silo-router.js';
 import {
   checkHasTranscript,
@@ -56,44 +53,12 @@ export interface MeetingData {
   from: string;
   participants: string[];
   geminiLink: string | null;
-  geminiTranscript: string | null;
   bodyText: string;
   bodyHtml: string;
   extractedAt: string;
   internalDateMs?: number | null;
   fathomKind?: 'share' | 'call';
   fathomUrl?: string;
-}
-
-export function fetchGeminiDoc(docUrl: string): string | null {
-  const m = docUrl.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
-  if (!m) return null;
-  const docId = m[1];
-
-  try {
-    const out = cp.spawnSync(
-      GOG,
-      [
-        'docs',
-        'export',
-        docId,
-        '--format',
-        'txt',
-        '--account',
-        getRef('google.docsExportAccount'),
-      ],
-      { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, timeout: 30000 },
-    );
-    if (out.error) throw out.error;
-    if (out.status !== 0)
-      throw new Error(out.stderr || 'gog docs export failed');
-    return (out.stdout || '').trim();
-  } catch (err) {
-    console.log(
-      `[meetings] WARN: Failed to fetch Gemini doc ${docId}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
-  }
 }
 
 interface LegacyManifest {
@@ -112,7 +77,7 @@ interface LegacyManifest {
 
 export function updateMeetingPackage(
   meeting: MeetingData,
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'setItem'>,
 ): { isNew: boolean; meetingId: string } {
   const meetingsDir = getMeetingsDir(meeting.account);
   const meetingDir = path.join(meetingsDir, meeting.meetingId);
@@ -167,21 +132,6 @@ export function updateMeetingPackage(
     const p = path.join(meetingDir, `${slug}.html`);
     fs.writeFileSync(p, meeting.bodyHtml, 'utf8');
     if (!artifacts.includes(`${slug}.html`)) artifacts.push(`${slug}.html`);
-  }
-
-  // Gemini transcript
-  if (meeting.geminiTranscript) {
-    const p = path.join(meetingDir, 'gemini-notes.txt');
-    fs.writeFileSync(p, meeting.geminiTranscript, 'utf8');
-    if (!artifacts.includes('gemini-notes.txt'))
-      artifacts.push('gemini-notes.txt');
-
-    // Materialize canonical summary.txt from gemini-notes.txt (spec section 3.2)
-    const summaryPath = path.join(meetingDir, 'summary.txt');
-    if (!fs.existsSync(summaryPath)) {
-      fs.writeFileSync(summaryPath, meeting.geminiTranscript, 'utf8');
-      if (!artifacts.includes('summary.txt')) artifacts.push('summary.txt');
-    }
   }
 
   // Gemini link

@@ -88,6 +88,17 @@ export const TOKEN_RATES_PATH = path.join(
 );
 
 /**
+ * Model ids collect-token-metrics found missing from the rate card
+ * (JSON string array). Written by the collector before it triggers
+ * refresh-token-rates, which adds each model once OpenRouter returns
+ * valid prices and removes it from this file.
+ */
+export const TOKEN_RATES_PENDING_PATH = path.join(
+  TOKEN_METRICS_DIR,
+  'token-rates.pending.json',
+);
+
+/**
  * Cache of Slack DM counterpart names (user id → name) learned by the
  * token-metrics collectors, so a `slack:dm:<USERID>` channel is looked up
  * once and then named `slack:dm:<person>`.

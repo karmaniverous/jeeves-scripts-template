@@ -194,49 +194,6 @@ describe('checkHasTranscript', () => {
   });
 });
 
-describe('gemini summary.txt materialization (gap 3)', () => {
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'meeting-test-'));
-  });
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it('creates summary.txt from gemini-notes.txt when it does not exist', () => {
-    const geminiContent = 'Gemini transcript content';
-    const geminiNotesPath = path.join(tmpDir, 'gemini-notes.txt');
-    const summaryPath = path.join(tmpDir, 'summary.txt');
-
-    // Simulate the package.ts write path: write gemini-notes.txt then
-    // materialize summary.txt if missing
-    fs.writeFileSync(geminiNotesPath, geminiContent, 'utf8');
-    if (!fs.existsSync(summaryPath)) {
-      fs.writeFileSync(summaryPath, geminiContent, 'utf8');
-    }
-
-    expect(fs.existsSync(summaryPath)).toBe(true);
-    expect(fs.readFileSync(summaryPath, 'utf8')).toBe(geminiContent);
-  });
-
-  it('does not overwrite existing summary.txt', () => {
-    const summaryPath = path.join(tmpDir, 'summary.txt');
-    const geminiNotesPath = path.join(tmpDir, 'gemini-notes.txt');
-
-    fs.writeFileSync(summaryPath, 'existing summary', 'utf8');
-    fs.writeFileSync(geminiNotesPath, 'new gemini content', 'utf8');
-
-    // Replicate the guard: only write if summary.txt doesn't exist
-    if (!fs.existsSync(summaryPath)) {
-      fs.writeFileSync(summaryPath, 'new gemini content', 'utf8');
-    }
-
-    expect(fs.readFileSync(summaryPath, 'utf8')).toBe('existing summary');
-  });
-});
-
 describe('writeMeetingMeta', () => {
   let tmpDir: string;
 

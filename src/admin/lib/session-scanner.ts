@@ -18,6 +18,7 @@ import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
 import { mergeUsage, tsToHour } from './bucket-io.js';
 import { detectChannel, registerChannelName } from './channel-mapper.js';
 import { scanClaudeCodeSessions } from './claude-code-session-scan.js';
+import { jsonlLines, ResumeCursor } from './jsonl-cursor.js';
 import { normalizeUsage, parseUsageLine } from './usage-parser.js';
 
 /** Result returned by scanAllSessions. */
@@ -65,26 +66,25 @@ function processOCFile(
     }
   }
 
-  // Compute byte positions per line to know where to resume
-  let bytePos = 0;
   let maxProcessedTs = cursor?.lastTimestamp ?? 0;
+  const resume = new ResumeCursor(byteOffset);
 
-  for (const line of allLines) {
-    const lineByteLen = Buffer.byteLength(line, 'utf8') + 1; // +1 for \n
-    const lineStart = bytePos;
-    bytePos += lineByteLen;
+  for (const line of jsonlLines(content, byteOffset)) {
+    resume.reach(line);
+    if (!line.text.trim()) continue;
 
-    // Skip lines we've already processed
-    if (lineStart < byteOffset) continue;
-    if (!line.trim()) continue;
-
-    const parsed = parseUsageLine(line);
+    const parsed = parseUsageLine(line.text);
     if (!parsed) continue;
 
     // Only include records within range
     if (parsed.tsMs < fromMs) continue;
-    // Skip messages in the current (incomplete) hour
-    if (parsed.tsMs >= cutoffMs) continue;
+    // Stop at the current (incomplete) hour: this record and everything
+    // after it are counted by a later run, once the hour has closed.
+    if (parsed.tsMs >= cutoffMs) {
+      resume.stopAt(line);
+      break;
+    }
+    resume.consume(line);
 
     const modelKey = [parsed.provider, parsed.model].join('/');
     seenModels.add(modelKey);
@@ -98,9 +98,9 @@ function processOCFile(
     }
   }
 
-  // Update cursor: advance byteOffset to current file size
+  // Advance the cursor only past what was counted (or deliberately passed).
   cursors[fileName] = {
-    byteOffset: stat.size,
+    byteOffset: resume.offset,
     lastTimestamp: maxProcessedTs,
   };
 }

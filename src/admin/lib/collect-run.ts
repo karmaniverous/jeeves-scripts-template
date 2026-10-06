@@ -60,7 +60,8 @@ export interface CollectDeps {
   ) => { ccProcessed: number; ccSkipped: number };
   ensureRateCard: () => void;
   knownModels: () => Record<string, unknown>;
-  triggerRateCardRefresh: () => void;
+  /** Record the unknown model ids as pending and trigger refresh-token-rates. */
+  triggerRateCardRefresh: (unknownModels: string[]) => void;
   nameDms: (buckets: Map<string, HourlyBucket>) => Promise<void>;
   flush: (buckets: Map<string, HourlyBucket>) => number;
   /** True when a bucket file already holds OpenClaw usage. */
@@ -149,7 +150,7 @@ export async function runCollect(deps: CollectDeps): Promise<number> {
         unknownModels.join(', '),
       );
       console.log(`${TAG} Triggering rate card refresh job...`);
-      deps.triggerRateCardRefresh();
+      deps.triggerRateCardRefresh(unknownModels);
       return 1;
     }
 

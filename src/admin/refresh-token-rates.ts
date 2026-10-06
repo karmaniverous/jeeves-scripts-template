@@ -2,45 +2,52 @@
 /**
  * @module refresh-token-rates
  *
- * Dispatcher: Refresh token rate card.
+ * Seeds the token rate card if missing, then refreshes every model's
+ * $/MTok rates from the public OpenRouter model endpoint
+ * (openrouter.ai/api/v1/model/<id>), adding models the collector recorded
+ * as pending (TOKEN_RATES_PENDING_PATH). No LLM session is involved.
+ * Changed rates are written atomically; the job fails if any provider
+ * model can't be resolved, after applying the rest. See
+ * lib/refresh-rates-run.ts for the full contract.
  *
- * Spawns an LLM session to fetch current published API pricing
- * from provider pricing pages and update the rate card config.
- * Runs daily and can be triggered on-demand by the collector
- * when it encounters an unknown model.
+ * `--dry-run` fetches and prints the changes without writing.
  *
- * Before dispatching, the rate card is seeded from
- * config/token-rates.seed.json if it doesn't exist, then validated.
- * After the worker finishes, its final reply must end with a
- * `RESULT: updated|unchanged|failed: <reason>` line (read back through
- * the gateway RPC `chat.history`; see lib/refresh-rates-dispatch.ts), and
- * the card is validated again; "updated" also requires updatedAt to
- * advance. Anything else exits non-zero so the runner records the run as
- * an error.
- *
- * `--dry-run` prints the TASK and exits without dispatching.
- *
- * Config dependencies: TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH,
- * SPAWN_WORKER_PATH from constants.ts.
+ * Config dependencies: TOKEN_RATES_PATH, TOKEN_RATES_PENDING_PATH,
+ * TOKEN_RATES_SEED_PATH from
+ * constants.ts.
  */
 
-import { runScript } from '@karmaniverous/jeeves';
+import { atomicWrite, runScript } from '@karmaniverous/jeeves';
 
-import { TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH } from '../lib/constants.js';
+import {
+  TOKEN_RATES_PATH,
+  TOKEN_RATES_PENDING_PATH,
+  TOKEN_RATES_SEED_PATH,
+} from '../lib/constants.js';
+import { fetchOpenRouterRates, httpGetJson } from './lib/openrouter-pricing.js';
+import {
+  readPendingModels,
+  writePendingModels,
+} from './lib/rate-card-pending.js';
 import { readRateCardFile } from './lib/rate-card-schema.js';
 import { ensureRateCard } from './lib/rate-card-seed.js';
-import { dispatchRefreshWorker } from './lib/refresh-rates-dispatch.js';
 import { refreshTokenRatesMain } from './lib/refresh-rates-run.js';
-import { buildRefreshRatesTask } from './lib/refresh-rates-task.js';
 
 runScript('admin/refresh-token-rates', async () => {
-  const task = buildRefreshRatesTask(TOKEN_RATES_PATH);
-
-  await refreshTokenRatesMain(process.argv, task, {
+  await refreshTokenRatesMain(process.argv, {
     ensure: () => {
       ensureRateCard(TOKEN_RATES_PATH, TOKEN_RATES_SEED_PATH);
     },
-    verify: () => readRateCardFile(TOKEN_RATES_PATH),
-    dispatch: () => dispatchRefreshWorker(task),
+    read: () => readRateCardFile(TOKEN_RATES_PATH),
+    fetchRates: async (id) =>
+      (await fetchOpenRouterRates(id, httpGetJson))?.rates ?? null,
+    write: (card) => {
+      atomicWrite(TOKEN_RATES_PATH, `${JSON.stringify(card, null, 1)}\n`);
+    },
+    readPending: () => readPendingModels(TOKEN_RATES_PENDING_PATH),
+    writePending: (ids) => {
+      writePendingModels(TOKEN_RATES_PENDING_PATH, ids);
+    },
+    now: () => new Date().toISOString(),
   });
 });

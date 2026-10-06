@@ -155,7 +155,7 @@ describe('runCollect', () => {
 
     expect(await runCollect(h.deps)).toBe(1);
 
-    expect(h.deps.triggerRateCardRefresh).toHaveBeenCalled();
+    expect(h.deps.triggerRateCardRefresh).toHaveBeenCalledWith([MODEL]);
     expect(h.deps.flush).not.toHaveBeenCalled();
     expect(h.log.filter((l) => l.startsWith('set:'))).toEqual([]);
   });

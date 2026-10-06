@@ -190,27 +190,31 @@ The template ships a seed card at `config/token-rates.seed.json` (default instan
 
 ### Failure reporting
 
-`refresh-token-rates` validates the card before dispatching the worker and again after the worker finishes. It exits non-zero (the runner records an error) if the card is missing and can't be seeded, is unreadable or invalid (bad JSON, missing rate category, no models), or if the worker exits non-zero.
+`refresh-token-rates` validates the card before fetching and again after writing. It exits non-zero (the runner records an error) if:
 
-The worker's exit code alone is not trusted. Its final reply must end with one result line, which the job reads back through the gateway (`sessions_history`):
+- the card is missing and can't be seeded, or is unreadable or invalid (bad JSON, missing rate category, no models);
+- any provider model on the card, or any pending model (below), can't be priced: OpenRouter returns 404, the request fails, or the fetch time budget runs out. Everything that _could_ be priced is still written first, so one bad model never blocks the rest;
+- the card is invalid after writing.
 
-- `RESULT: updated` — the card must also have a later `updatedAt` than before the run;
-- `RESULT: unchanged` — every rate verified, no change needed;
-- `RESULT: failed: <reason>` — recorded as a failed run with the reason.
-
-A missing or malformed result line fails the run. `refresh-token-rates --dry-run` prints the TASK and exits without seeding, reading the card, or dispatching a worker.
+`refresh-token-rates --dry-run` fetches and prints the changes without seeding, writing the card, or touching the pending file.
 
 ### Automatic (recommended)
 
-The `refresh-token-rates.ts` job runs daily at 05:37 UTC (off-peak; `timeout_seconds` 600) and dispatches one paid LLM session to fetch current published API pricing. New models are added automatically when they appear in provider pricing pages.
+The `refresh-token-rates.ts` job runs daily at 05:37 UTC (`timeout_seconds` 120). It is a plain script with no LLM session: for each model on the card it reads base-tier prices from the public OpenRouter model endpoint, `GET https://openrouter.ai/api/v1/model/<provider>/<model>` (no auth), converts per-token USD to $/MTok, and writes any changed rates atomically in one write (advancing `updatedAt` and appending a dated note to `source`).
+
+- **Base tier only.** Prompt-length `overrides` (higher long-context prices) and `input_cache_write_1h` are ignored; Anthropic `input_cache_write` is the 5-minute tier, which is what the card stores. A missing cache price means the provider has none and is stored as 0.
+- **Ids are sent as-is.** OpenRouter resolves aliases itself (e.g. `anthropic/claude-opus-5-5` returns `anthropic/claude-opus-5.5`).
+- **Internal entries are skipped.** `openclaw/…` and `clawdbot/…` routing entries (e.g. `delivery-mirror`) stay at 0.
+- **Bounded.** Requests run 4 at a time with a 15 s per-request timeout under a 60 s overall budget, so stalled requests can't push the job past the runner timeout before the card is written.
+- **Estimates.** Token metrics are estimates, normalized against provider billing before invoicing, so a reseller price list is accurate enough.
 
 If the collector encounters an unknown model, it:
 
 1. Refuses to write any buckets for that run.
-2. Triggers the rate card refresh job.
-3. Exits with code 1.
+2. Records the unknown model ids in the pending file, `token-rates.pending.json` next to the card (a JSON array of ids).
+3. Triggers the rate card refresh job and exits with code 1.
 
-The next collector run (97 minutes later) will pick up the updated rate card and process the pending data.
+`refresh-token-rates` fetches each pending id from OpenRouter and adds it to the card once valid prices come back. Added ids leave the pending file; ids OpenRouter doesn't know stay in it and fail the run until someone adds them by hand (below). The next collector run (97 minutes later) picks up the updated card and processes the held data.
 
 ### Manual
 
@@ -234,4 +238,4 @@ Edit `token-rates.json` directly. The schema:
 
 Rates are in **dollars per million tokens** ($/MTok). All four categories (`input`, `output`, `cacheRead`, `cacheWrite`) are required for each model. The model key format is `{provider}/{model}` matching what appears in transcript data.
 
-After adding a model manually, restart the collector or wait for the next cron cycle.
+After adding a model manually, restart the collector or wait for the next cron cycle. If the model is listed in `token-rates.pending.json`, the next refresh run clears it once it finds the model on the card.

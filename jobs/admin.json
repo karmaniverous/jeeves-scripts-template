@@ -41,9 +41,9 @@
       "byminute": 37,
       "timezone": "UTC"
     },
-    "description": "Seed the token rate card if missing, then dispatch an LLM worker to verify per-model $/MTok rates against official provider pricing pages. Fails if the rate card is missing or invalid, or the worker does not report a verified RESULT.",
+    "description": "Seed the token rate card if missing, then refresh per-model $/MTok rates from the OpenRouter model API (no LLM). Fails if the rate card is missing or invalid, or any provider model can't be resolved.",
     "overlap_policy": "skip",
-    "timeout_seconds": 600,
+    "timeout_seconds": 120,
     "enabled": true,
     "domain": "admin",
     "prerequisite": null

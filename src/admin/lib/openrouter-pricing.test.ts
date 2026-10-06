@@ -4,6 +4,7 @@ import {
   fetchOpenRouterRates,
   OPENROUTER_MODEL_URL,
   perTokenToPerMTok,
+  toOpenRouterId,
 } from './openrouter-pricing.js';
 
 describe('perTokenToPerMTok', () => {
@@ -40,7 +41,34 @@ describe('perTokenToPerMTok', () => {
   });
 });
 
+describe('toOpenRouterId', () => {
+  it('maps the xai/ provider prefix to x-ai/', () => {
+    expect(toOpenRouterId('xai/grok-4.20')).toBe('x-ai/grok-4.20');
+  });
+
+  it('leaves other ids unchanged', () => {
+    for (const id of [
+      'anthropic/claude-opus-5-5',
+      'openai/gpt-5.6-sol',
+      'x-ai/grok-4.20',
+      'xai-labs/m',
+      'no-slash',
+    ])
+      expect(toOpenRouterId(id)).toBe(id);
+  });
+});
+
 describe('fetchOpenRouterRates', () => {
+  it('requests xai/ models under x-ai/', async () => {
+    const fetchJson = vi.fn().mockResolvedValue({ status: 404, body: null });
+    await expect(
+      fetchOpenRouterRates('xai/grok-4.20', fetchJson),
+    ).resolves.toBeNull();
+    expect(fetchJson).toHaveBeenCalledWith(
+      `${OPENROUTER_MODEL_URL}x-ai/grok-4.20`,
+    );
+  });
+
   it('returns base-tier rates and the resolved id', async () => {
     const fetchJson = vi.fn().mockResolvedValue({
       status: 200,

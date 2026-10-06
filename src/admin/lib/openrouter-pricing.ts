@@ -12,8 +12,11 @@
  * matching the card). Missing cache prices mean the provider offers none
  * and map to 0.
  *
- * OpenRouter resolves aliases itself (e.g. `anthropic/claude-opus-5-5`
- * returns `anthropic/claude-opus-5.5`), so card model ids are sent as-is.
+ * OpenRouter resolves model aliases itself (e.g. `anthropic/claude-opus-5-5`
+ * returns `anthropic/claude-opus-5.5`), but not provider prefixes: a few
+ * providers are named differently there (`xai/` is `x-ai/`). Those
+ * prefixes are mapped by {@link toOpenRouterId}; everything else is sent
+ * as-is.
  *
  * Token metrics are estimates; they are normalized against provider
  * billing before invoicing, so a reseller price list is accurate enough.
@@ -62,6 +65,22 @@ export function perTokenToPerMTok(value: unknown, field: string): number {
   return Math.round(n * 1e6 * 1e6) / 1e6;
 }
 
+/**
+ * Provider prefixes that OpenRouter names differently from the rate card.
+ * Verified live: `GET .../model/xai/grok-4.20` is 404, `x-ai/grok-4.20` 200.
+ */
+export const OPENROUTER_PROVIDER_ALIASES: Readonly<Record<string, string>> = {
+  xai: 'x-ai',
+};
+
+/** Map a rate-card model id to the id OpenRouter knows it by. */
+export function toOpenRouterId(modelId: string): string {
+  const slash = modelId.indexOf('/');
+  if (slash < 0) return modelId;
+  const alias = OPENROUTER_PROVIDER_ALIASES[modelId.slice(0, slash)];
+  return alias ? alias + modelId.slice(slash) : modelId;
+}
+
 /** Rates for one model, plus the id OpenRouter resolved it to. */
 export interface OpenRouterRates {
   resolvedId: string;
@@ -81,7 +100,8 @@ export async function fetchOpenRouterRates(
   fetchJson: JsonFetcher,
 ): Promise<OpenRouterRates | null> {
   const { status, body } = await fetchJson(
-    OPENROUTER_MODEL_URL + modelId.split('/').map(encodeURIComponent).join('/'),
+    OPENROUTER_MODEL_URL +
+      toOpenRouterId(modelId).split('/').map(encodeURIComponent).join('/'),
   );
   if (status === 404) return null;
   if (status !== 200) {

@@ -49,7 +49,7 @@ afterAll(() => {
 
 describe('updateMeetingPackage (Gemini, #94)', () => {
   it('writes gemini_link.txt without reading docsExportAccount or running gog', () => {
-    const setItem = vi.fn();
+    const setItem = vi.fn<RunnerClient['setItem']>();
     const link = 'https://docs.google.com/document/d/abc123/edit';
     const { isNew, meetingId } = pkg.updateMeetingPackage(
       {
@@ -68,7 +68,7 @@ describe('updateMeetingPackage (Gemini, #94)', () => {
         bodyHtml: '',
         extractedAt: '2026-10-06T00:00:00.000Z',
       },
-      { setItem } as unknown as RunnerClient,
+      { setItem },
     );
 
     expect(isNew).toBe(true);

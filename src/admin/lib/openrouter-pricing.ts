@@ -114,7 +114,16 @@ export async function fetchOpenRouterRates(
   if (!data || !pricing) {
     throw new Error(`OpenRouter response for ${modelId} has no pricing`);
   }
-  if (pricing['prompt'] === undefined || pricing['completion'] === undefined) {
+  // Absent cache prices mean 0, but the two required prices must be present
+  // and non-null: null would otherwise convert to a $0 rate.
+  const prompt = pricing['prompt'];
+  const completion = pricing['completion'];
+  if (
+    prompt === undefined ||
+    prompt === null ||
+    completion === undefined ||
+    completion === null
+  ) {
     throw new Error(
       `OpenRouter pricing for ${modelId} lacks prompt/completion prices`,
     );
@@ -122,8 +131,8 @@ export async function fetchOpenRouterRates(
   return {
     resolvedId: typeof data['id'] === 'string' ? data['id'] : modelId,
     rates: {
-      input: perTokenToPerMTok(pricing['prompt'], `${modelId}.prompt`),
-      output: perTokenToPerMTok(pricing['completion'], `${modelId}.completion`),
+      input: perTokenToPerMTok(prompt, `${modelId}.prompt`),
+      output: perTokenToPerMTok(completion, `${modelId}.completion`),
       cacheRead: perTokenToPerMTok(
         pricing['input_cache_read'],
         `${modelId}.input_cache_read`,

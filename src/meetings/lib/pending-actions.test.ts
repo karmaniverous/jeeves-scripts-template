@@ -4,26 +4,42 @@ vi.mock('@karmaniverous/jeeves', () => ({
   nowIso: () => '2026-10-06T00:00:00.000Z',
 }));
 
-import { EMAIL_UPDATES_QUEUE } from '../../email/google-workspace/label-actions.js';
+import {
+  EMAIL_UPDATES_QUEUE,
+  type EmailUpdateAction,
+} from '../../email/google-workspace/label-actions.js';
 import {
   catchUpMeetingEmailActions,
   deferMeetingEmailActions,
+  INVALID_COLLECTION,
   messageKey,
   PENDING_COLLECTION,
   PENDING_NAMESPACE,
   type PendingClient,
 } from './pending-actions.js';
 
-interface Queued {
-  action: string;
-  label?: string;
-  messageId: string;
+const ACTIONS = new Set(['addLabel', 'removeLabel', 'archive']);
+
+/** Narrow an enqueued payload to the email-updates action contract. */
+function isEmailUpdate(v: unknown): v is EmailUpdateAction & {
+  createdAt: string;
+} {
+  if (typeof v !== 'object' || v === null) return false;
+  const o: Record<string, unknown> = Object.fromEntries(Object.entries(v));
+  const strings = ['account', 'threadId', 'messageId', 'source', 'reason'];
+  return (
+    strings.every((k) => typeof o[k] === 'string') &&
+    typeof o['action'] === 'string' &&
+    ACTIONS.has(o['action']) &&
+    (o['action'] === 'archive' || typeof o['label'] === 'string') &&
+    typeof o['createdAt'] === 'string'
+  );
 }
 
 /** In-memory runner client: items keyed by collection, plus an enqueue log. */
 function fakeClient() {
   const items = new Map<string, Map<string, string>>();
-  const queued: Queued[] = [];
+  const queued: EmailUpdateAction[] = [];
   const coll = (ns: string, key: string) => {
     const k = `${ns}/${key}`;
     let m = items.get(k);
@@ -41,12 +57,15 @@ function fakeClient() {
     listItemKeys: (ns, key) => [...coll(ns, key).keys()],
     enqueue: (queue, payload) => {
       expect(queue).toBe(EMAIL_UPDATES_QUEUE);
-      queued.push(payload as Queued);
+      if (!isEmailUpdate(payload))
+        throw new Error(`malformed payload: ${JSON.stringify(payload)}`);
+      queued.push(payload);
       return queued.length;
     },
   };
   const pending = () => coll(PENDING_NAMESPACE, PENDING_COLLECTION);
-  return { client, queued, pending };
+  const invalid = () => coll(PENDING_NAMESPACE, INVALID_COLLECTION);
+  return { client, queued, pending, invalid };
 }
 
 const msg = (id: string) => ({
@@ -73,6 +92,7 @@ describe('catchUpMeetingEmailActions', () => {
       caughtUp: 0,
       queued: 0,
       remaining: 0,
+      invalid: [],
     });
     expect(queued).toHaveLength(0);
   });
@@ -86,7 +106,7 @@ describe('catchUpMeetingEmailActions', () => {
       [messageKey(msg('b')), ['INBOX', 'watch']],
     ]);
     const r = catchUpMeetingEmailActions(client, labels);
-    expect(r).toEqual({ caughtUp: 2, queued: 3, remaining: 0 });
+    expect(r).toEqual({ caughtUp: 2, queued: 3, remaining: 0, invalid: [] });
     expect(queued.map((q) => `${q.messageId}:${q.action}`)).toEqual([
       'a:addLabel',
       'a:archive',
@@ -122,6 +142,7 @@ describe('catchUpMeetingEmailActions', () => {
         caughtUp: 2,
         queued: 2,
         remaining: 1,
+        invalid: [],
       },
     );
     expect(catchUpMeetingEmailActions(client, new Map(), { limit: 2 })).toEqual(
@@ -129,6 +150,7 @@ describe('catchUpMeetingEmailActions', () => {
         caughtUp: 1,
         queued: 1,
         remaining: 0,
+        invalid: [],
       },
     );
     expect(queued).toHaveLength(3);
@@ -142,11 +164,23 @@ describe('catchUpMeetingEmailActions', () => {
     expect(queued).toHaveLength(1);
   });
 
-  it('drops a malformed record without enqueueing', () => {
-    const { client, queued, pending } = fakeClient();
+  it('quarantines an unreadable record verbatim and reports it, without enqueueing', () => {
+    const { client, queued, pending, invalid } = fakeClient();
     pending().set('bad', '{"account":1}');
-    expect(catchUpMeetingEmailActions(client, new Map()).caughtUp).toBe(0);
-    expect(queued).toHaveLength(0);
+    deferMeetingEmailActions(client, 'k-a', msg('a'));
+    const res = catchUpMeetingEmailActions(client, new Map());
+    expect(res).toMatchObject({ caughtUp: 1, invalid: ['bad'], remaining: 0 });
+    expect(queued.map((q) => q.messageId)).toEqual(['a']);
     expect(pending().size).toBe(0);
+    expect(invalid().get('bad')).toBe('{"account":1}');
+  });
+
+  it('quarantined records are not retried by later runs', () => {
+    const { client, queued, invalid } = fakeClient();
+    client.setItem(PENDING_NAMESPACE, PENDING_COLLECTION, 'bad', 'not json');
+    catchUpMeetingEmailActions(client, new Map());
+    expect(catchUpMeetingEmailActions(client, new Map()).invalid).toEqual([]);
+    expect(queued).toHaveLength(0);
+    expect(invalid().size).toBe(1);
   });
 });

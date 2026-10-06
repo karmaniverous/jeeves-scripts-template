@@ -23,20 +23,19 @@ import { z } from 'zod';
 
 import { IMAP_SECRETS_DIR, PIPELINE_CONFIG_PATH } from './constants.js';
 import { isSafeSecretRef, UNSAFE_SECRET_REF_MESSAGE } from './imap-secrets.js';
+import {
+  clearDeprecationWarnings,
+  warnDeprecated,
+} from './pipeline-config-deprecations.js';
+import { EmailConfigSchema } from './pipeline-config-email.js';
+
+export type {
+  BackfillConfig,
+  EmailConfig,
+  MeetingsEmailConfig,
+} from './pipeline-config-email.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────
-
-const warnedDeprecations = new Set<string>();
-
-/**
- * Log a one-line `pipeline-config:` deprecation warning, at most once per
- * process for each message (cleared by {@link resetPipelineConfig}).
- */
-function warnDeprecated(message: string): void {
-  if (warnedDeprecations.has(message)) return;
-  warnedDeprecations.add(message);
-  console.warn(`pipeline-config: ${message}`);
-}
 
 /** Deprecation warning for a literal `imap.password` (never the value). */
 const PLAIN_IMAP_PASSWORD_WARNING = `accounts[].imap.password as a plain string is deprecated; put the password in a file in ${IMAP_SECRETS_DIR} and set imap.password to { "secretRef": "<file name>" }.`;
@@ -101,84 +100,6 @@ const BucketsSchema = z.object({
   priority: z.array(z.string()),
 });
 
-/** Deprecated name of `emailConfig.receipt.forwardEnabled`. */
-const LEGACY_RECEIPT_FORWARD_KEY = 'forwardJGS';
-
-/**
- * Map the deprecated `receipt.forwardJGS` key to `forwardEnabled` so
- * existing pipeline-config.json files keep loading. When both are
- * present, `forwardEnabled` wins and the legacy key is ignored. Either
- * way a one-line deprecation warning is logged (once per process).
- */
-function migrateReceiptConfig(raw: unknown): unknown {
-  if (
-    raw === null ||
-    typeof raw !== 'object' ||
-    !(LEGACY_RECEIPT_FORWARD_KEY in raw)
-  )
-    return raw;
-  const { [LEGACY_RECEIPT_FORWARD_KEY]: legacy, ...rest } = raw as Record<
-    string,
-    unknown
-  >;
-  if ('forwardEnabled' in rest) {
-    warnDeprecated(
-      `emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated and ignored because forwardEnabled is set; remove it.`,
-    );
-    return rest;
-  }
-  warnDeprecated(
-    `emailConfig.receipt.${LEGACY_RECEIPT_FORWARD_KEY} is deprecated; rename it to forwardEnabled.`,
-  );
-  return { ...rest, forwardEnabled: legacy };
-}
-
-const ReceiptConfigSchema = z.preprocess(
-  migrateReceiptConfig,
-  z.object({
-    /** Whether detected receipts are forwarded to `sparkReceiptsForwardTo`. */
-    forwardEnabled: z.boolean(),
-    /** Address receipts are forwarded to. */
-    sparkReceiptsForwardTo: z.string(),
-  }),
-);
-
-const DigestConfigSchema = z.object({
-  slackChannelId: z.string(),
-});
-
-/**
- * Paced historical Gmail backfill (email/google-workspace/
- * backfill-historical.ts). Optional: absent means the backfill job has
- * nothing configured and fails if run without CLI args. No defaults.
- */
-const BackfillConfigSchema = z.object({
-  /** Gmail accounts to backfill. */
-  accounts: z.array(z.string().min(1)).min(1),
-  /** How far back from now to walk, in days. */
-  lookbackDays: z.number().int().positive(),
-  /** Days searched per run, per account. */
-  windowDays: z.number().int().positive(),
-});
-
-/**
- * Gmail actions meetings/extract.ts takes on a meeting's source email.
- * Optional: absent keeps the original behaviour (archive inbox meeting
- * emails). The `meeting` label is always applied (unless reportOnly).
- */
-const MeetingsEmailConfigSchema = z.object({
-  /** Archive the source email out of INBOX after packaging (never `watch`ed mail). */
-  archive: z.boolean(),
-});
-
-const EmailConfigSchema = z.object({
-  reportOnly: z.boolean(),
-  receipt: ReceiptConfigSchema,
-  digest: DigestConfigSchema,
-  backfill: BackfillConfigSchema.optional(),
-  meetings: MeetingsEmailConfigSchema.optional(),
-});
-
 const PipelineConfigSchema = z.object({
   accounts: z.array(AccountSchema),
   buckets: BucketsSchema,
@@ -198,9 +119,6 @@ export type PipelineConfig = z.infer<typeof PipelineConfigSchema>;
 export type AccountConfig = z.infer<typeof AccountSchema>;
 export type ImapConnection = z.infer<typeof ImapConnectionSchema>;
 export type BucketsConfig = z.infer<typeof BucketsSchema>;
-export type EmailConfig = z.infer<typeof EmailConfigSchema>;
-export type BackfillConfig = z.infer<typeof BackfillConfigSchema>;
-export type MeetingsEmailConfig = z.infer<typeof MeetingsEmailConfigSchema>;
 
 // ── Cached loader ───────────────────────────────────────────────────
 
@@ -218,7 +136,7 @@ export function loadPipelineConfig(): PipelineConfig {
 /** Reset cached config (for testing). */
 export function resetPipelineConfig(): void {
   _config = null;
-  warnedDeprecations.clear();
+  clearDeprecationWarnings();
   _bucketPriorityCache = null;
 }
 

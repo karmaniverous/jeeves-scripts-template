@@ -110,9 +110,10 @@ All three entries in `jobs/admin.json` have `"prerequisite": null`. `refresh-tok
 | `lib/patch-tool-order-utils.ts` | Pure helpers for toolOrder parsing/formatting and the per-chunk toolOrder patch evaluation |
 | `lib/text-patch.ts` | Pure anchored/idempotent text-patch primitives and cross-file plan reduction |
 | `lib/rate-card.ts` | Token rate card loader and cost calculator ($/MTok) |
-| `lib/rate-card-schema.ts` | Zod schema and validating file reader for the rate card |
+| `lib/rate-card-schema.ts` | Zod schema and validating file reader for the rate card (optional per-entry `manual` flag) |
 | `lib/rate-card-seed.ts` | Seed-if-missing: copies `config/token-rates.seed.json` into place, never overwrites |
-| `lib/refresh-rates-run.ts` | refresh-token-rates orchestration: read card, fetch rates, apply changes, write, re-validate; decides job success |
+| `lib/refresh-rates-run.ts` | refresh-token-rates orchestration: read card, fetch rates (skipping `manual` entries), apply changes, write, re-validate, prune the pending file; decides job success |
+| `lib/refresh-rates-fetch.ts` | Bounded OpenRouter fetching: concurrency limit and overall time budget |
 | `lib/openrouter-pricing.ts` | OpenRouter single-model price fetch and per-token → $/MTok conversion |
 | `lib/rate-card-pending.ts` | Pending-models file (`token-rates.pending.json`): ids the collector found missing from the card, handed to refresh-token-rates to add |
 | `lib/recalc-utils.ts` | Pure helpers for recalculation: hour enumeration and cursor reset logic |

@@ -28,6 +28,11 @@ import {
 /** Runner-state namespace and collection holding pending meeting actions. */
 export const PENDING_NAMESPACE = 'meetings';
 export const PENDING_COLLECTION = 'pendingEmailActions';
+/**
+ * Collection that unreadable pending records are moved to, verbatim. They
+ * are reported and never retried; inspect and re-queue or delete by hand.
+ */
+export const INVALID_COLLECTION = 'pendingEmailActionsInvalid';
 
 /** Most pending meetings caught up in one run. */
 export const CATCH_UP_PER_RUN = 20;
@@ -85,7 +90,7 @@ function parsePending(raw: string | null): PendingMessage | null {
         messageId: v.messageId,
       };
   } catch {
-    // fall through: malformed records are dropped below
+    // fall through: the caller quarantines unreadable records
   }
   return null;
 }
@@ -98,6 +103,8 @@ export interface CatchUpResult {
   queued: number;
   /** Pending meetings left for later runs. */
   remaining: number;
+  /** Keys of unreadable records moved to {@link INVALID_COLLECTION}. */
+  invalid: string[];
 }
 
 /**
@@ -116,11 +123,11 @@ export function catchUpMeetingEmailActions(
   const keys = client.listItemKeys(PENDING_NAMESPACE, PENDING_COLLECTION);
   let caughtUp = 0;
   let queued = 0;
+  const invalid: string[] = [];
   for (const key of keys) {
     if (caughtUp >= limit) break;
-    const pending = parsePending(
-      client.getItem(PENDING_NAMESPACE, PENDING_COLLECTION, key),
-    );
+    const raw = client.getItem(PENDING_NAMESPACE, PENDING_COLLECTION, key);
+    const pending = parsePending(raw);
     if (pending) {
       const labels = currentLabels.get(messageKey(pending)) ?? [];
       queued += enqueueMeetingEmailActions(
@@ -130,12 +137,18 @@ export function catchUpMeetingEmailActions(
         actionOptions,
       );
       caughtUp++;
+    } else if (raw !== null) {
+      // Unreadable record: keep it, verbatim, where it won't be retried, so
+      // a corrupt record never silently discards a promised action.
+      client.setItem(PENDING_NAMESPACE, INVALID_COLLECTION, key, raw);
+      invalid.push(key);
     }
     client.deleteItem(PENDING_NAMESPACE, PENDING_COLLECTION, key);
   }
   return {
     caughtUp,
     queued,
+    invalid,
     remaining: client.listItemKeys(PENDING_NAMESPACE, PENDING_COLLECTION)
       .length,
   };

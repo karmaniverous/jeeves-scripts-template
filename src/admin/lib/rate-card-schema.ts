@@ -10,12 +10,19 @@ import fs from 'node:fs';
 
 import { z } from 'zod';
 
-/** Per-model rates in $/MTok. All four token categories are required. */
+/**
+ * Per-model rates in $/MTok. All four token categories are required.
+ *
+ * `manual: true` marks rates maintained by hand: refresh-token-rates skips
+ * the entry instead of looking it up on OpenRouter, so a model OpenRouter
+ * doesn't list can still be priced.
+ */
 export const modelRatesSchema = z.object({
   input: z.number().nonnegative(),
   output: z.number().nonnegative(),
   cacheRead: z.number().nonnegative(),
   cacheWrite: z.number().nonnegative(),
+  manual: z.boolean().optional(),
 });
 
 /** Full rate card file schema. `models` must contain at least one entry. */

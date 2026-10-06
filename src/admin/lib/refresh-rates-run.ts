@@ -26,7 +26,7 @@
  *   applied first, so one bad model never blocks the rest;
  * - the card is invalid after writing.
  *
- * Fetches run {@link FETCH_CONCURRENCY} at a time under an overall
+ * Fetches (refresh-rates-fetch.ts) run {@link FETCH_CONCURRENCY} at a time under an overall
  * {@link FETCH_BUDGET_MS} budget, so stalled requests can't push the job
  * past the runner timeout before the card is written.
  *
@@ -35,16 +35,11 @@
  */
 
 import type { ModelRates, RateCardConfig } from './rate-card-schema.js';
-
-/** Parallel OpenRouter requests. */
-export const FETCH_CONCURRENCY = 4;
-
-/**
- * Overall time budget for fetching, in ms. With the 15 s per-request
- * timeout in openrouter-pricing.ts, the fetch phase ends by ~75 s, well
- * inside the 120 s runner timeout, leaving time to write the card.
- */
-export const FETCH_BUDGET_MS = 60_000;
+import {
+  FETCH_BUDGET_MS,
+  FETCH_CONCURRENCY,
+  fetchAllRates,
+} from './refresh-rates-fetch.js';
 
 /** Model-id prefixes for internal routing entries (always priced at 0). */
 const INTERNAL_PREFIXES = ['openclaw/', 'clawdbot/'];
@@ -79,75 +74,6 @@ export interface RefreshRatesDeps {
   clock?: () => number;
 }
 
-/** Outcome of fetching one model. */
-type FetchOutcome =
-  | { id: string; rates: ModelRates }
-  | { id: string; rates: null; problem: string };
-
-/**
- * Fetch rates for many models with bounded concurrency and an overall
- * time budget. Models not started before the budget runs out, or still
- * in flight when it does, are reported as problems rather than blocking
- * the run.
- *
- * @param ids - Model ids to fetch.
- * @param fetchRates - Per-model fetch.
- * @param opts - Concurrency, budget and clock.
- * @returns One outcome per id, in input order.
- */
-export async function fetchAllRates(
-  ids: readonly string[],
-  fetchRates: (id: string) => Promise<ModelRates | null>,
-  opts: { concurrency: number; budgetMs: number; clock: () => number },
-): Promise<FetchOutcome[]> {
-  const deadline = opts.clock() + opts.budgetMs;
-  const results: FetchOutcome[] = new Array<FetchOutcome>(ids.length);
-  let next = 0;
-
-  const fetchOne = async (id: string): Promise<FetchOutcome> => {
-    const remaining = deadline - opts.clock();
-    if (remaining <= 0)
-      return {
-        id,
-        rates: null,
-        problem: 'skipped: fetch time budget exhausted',
-      };
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<FetchOutcome>((resolve) => {
-      timer = setTimeout(() => {
-        resolve({ id, rates: null, problem: 'fetch time budget exhausted' });
-      }, remaining);
-    });
-    const attempt = fetchRates(id).then(
-      (rates): FetchOutcome =>
-        rates
-          ? { id, rates }
-          : { id, rates: null, problem: 'not found on OpenRouter' },
-      (err: unknown): FetchOutcome => ({
-        id,
-        rates: null,
-        problem: errorText(err),
-      }),
-    );
-    try {
-      return await Promise.race([attempt, timeout]);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  const worker = async (): Promise<void> => {
-    while (next < ids.length) {
-      const i = next++;
-      results[i] = await fetchOne(ids[i]);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(opts.concurrency, ids.length) }, worker),
-  );
-  return results;
-}
-
 /** One changed or added model (`before` is null for an addition). */
 export interface RateChange {
   model: string;
@@ -173,10 +99,6 @@ function fmt(r: ModelRates | null): string {
   return CATEGORIES.map((k) => `${k}=${String(r[k])}`).join(' ');
 }
 
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /**
  * Run one refresh.
  *
@@ -193,11 +115,12 @@ export async function runRefreshTokenRates(
   if (!options.dryRun) deps.ensure();
   const card = deps.read();
   const ids = Object.keys(card.models);
+  const manual = ids.filter((id) => card.models[id].manual === true);
   const pending = [...new Set(deps.readPending())].filter(
     (id) => !(id in card.models) && !isInternalModel(id),
   );
   log(
-    `[refresh-token-rates] Rate card OK (${String(ids.length)} models, ${String(pending.length)} pending); checking OpenRouter`,
+    `[refresh-token-rates] Rate card OK (${String(ids.length)} models, ${String(manual.length)} manual, ${String(pending.length)} pending); checking OpenRouter`,
   );
 
   const changes: RateChange[] = [];
@@ -205,10 +128,13 @@ export async function runRefreshTokenRates(
   const models: Record<string, ModelRates> = { ...card.models };
 
   const targets: [string, ModelRates | null][] = [
-    ...Object.entries(card.models).filter(([id]) => !isInternalModel(id)),
+    // Internal routing entries have no provider price; manual entries are
+    // maintained by hand and never looked up.
+    ...Object.entries(card.models).filter(
+      ([id, rates]) => !isInternalModel(id) && rates.manual !== true,
+    ),
     ...pending.map((id): [string, null] => [id, null]),
   ];
-  const unresolvedPending: string[] = [];
 
   const outcomes = await fetchAllRates(
     targets.map(([id]) => id),
@@ -224,7 +150,6 @@ export async function runRefreshTokenRates(
     const res = outcomes[i];
     if (!res.rates) {
       problems.push(`${id}: ${res.problem}`);
-      if (!before) unresolvedPending.push(id);
       return;
     }
     const rates = res.rates;
@@ -271,10 +196,16 @@ export async function runRefreshTokenRates(
     log('[refresh-token-rates] All rates unchanged');
   }
 
-  // Pending ids: keep only those still unresolved (written after the card,
-  // so an added model is never dropped from both).
-  if (!options.dryRun && deps.readPending().length) {
-    deps.writePending(unresolvedPending);
+  // Pending ids: re-read the file now (the collector may have added ids
+  // while we were fetching) and drop only ids that are on the card. This
+  // runs after the card write, so an added model is never dropped from
+  // both, and a concurrently added id is never lost.
+  if (!options.dryRun) {
+    const current = deps.readPending();
+    const keep = current.filter(
+      (id) => !(id in models) && !isInternalModel(id),
+    );
+    if (keep.length !== current.length) deps.writePending(keep);
   }
 
   if (problems.length) {
@@ -282,7 +213,7 @@ export async function runRefreshTokenRates(
       `refresh-token-rates could not verify ${String(problems.length)} model(s): ${problems.join('; ')}`,
     );
   }
-  return { outcome, models: ids.length, changes };
+  return { outcome, models: Object.keys(models).length, changes };
 }
 
 /**

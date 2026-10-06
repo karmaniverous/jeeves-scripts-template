@@ -97,7 +97,7 @@ Gateway RPC caller for methods that are not HTTP tools, or whose tool wrapper li
 
 ### pipeline-config.ts
 
-Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`. Deprecated forms (`emailConfig.receipt.forwardJGS`, a literal `imap.password` string) still load, each with a one-line `pipeline-config:` warning logged once per process.
+Zod-validated pipeline configuration loader. Depends on `PIPELINE_CONFIG_PATH`. The `emailConfig` schema lives in `pipeline-config-email.ts` and the shared deprecation warner in `pipeline-config-deprecations.ts`; the email config types are re-exported from `pipeline-config.ts`. Deprecated forms (`emailConfig.receipt.forwardJGS`, a literal `imap.password` string) still load, each with a one-line `pipeline-config:` warning logged once per process.
 
 - `loadPipelineConfig()` — load and cache config with Zod validation
 - `getRef(key)` — get a ref value by dotted key (e.g., `'notion.socialPostsDatabaseId'`); throws if missing

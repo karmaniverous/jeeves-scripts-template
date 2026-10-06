@@ -193,7 +193,7 @@ The template ships a seed card at `config/token-rates.seed.json` (default instan
 `refresh-token-rates` validates the card before fetching and again after writing. It exits non-zero (the runner records an error) if:
 
 - the card is missing and can't be seeded, or is unreadable or invalid (bad JSON, missing rate category, no models);
-- any provider model on the card, or any pending model (below), can't be priced: OpenRouter returns 404, the request fails, or the fetch time budget runs out. Everything that _could_ be priced is still written first, so one bad model never blocks the rest;
+- any provider model on the card (other than `manual` entries, below), or any pending model, can't be priced: OpenRouter returns 404, the request fails, or the fetch time budget runs out. Everything that _could_ be priced is still written first, so one bad model never blocks the rest;
 - the card is invalid after writing.
 
 `refresh-token-rates --dry-run` fetches and prints the changes without seeding, writing the card, or touching the pending file.
@@ -203,8 +203,9 @@ The template ships a seed card at `config/token-rates.seed.json` (default instan
 The `refresh-token-rates.ts` job runs daily at 05:37 UTC (`timeout_seconds` 120). It is a plain script with no LLM session: for each model on the card it reads base-tier prices from the public OpenRouter model endpoint, `GET https://openrouter.ai/api/v1/model/<provider>/<model>` (no auth), converts per-token USD to $/MTok, and writes any changed rates atomically in one write (advancing `updatedAt` and appending a dated note to `source`).
 
 - **Base tier only.** Prompt-length `overrides` (higher long-context prices) and `input_cache_write_1h` are ignored; Anthropic `input_cache_write` is the 5-minute tier, which is what the card stores. A missing cache price means the provider has none and is stored as 0.
-- **Ids are sent as-is, except provider prefixes.** OpenRouter resolves model aliases itself (e.g. `anthropic/claude-opus-5-5` returns `anthropic/claude-opus-5.5`), but some providers have a different prefix there: `xai/` is sent as `x-ai/` (`OPENROUTER_PROVIDER_ALIASES` in `lib/openrouter-pricing.ts`). A model OpenRouter no longer lists fails the run; remove its card entry once no session uses it.
+- **Ids are sent as-is, except provider prefixes.** OpenRouter resolves model aliases itself (e.g. `anthropic/claude-opus-5-5` returns `anthropic/claude-opus-5.5`), but some providers have a different prefix there: `xai/` is sent as `x-ai/` (`OPENROUTER_PROVIDER_ALIASES` in `lib/openrouter-pricing.ts`). A model OpenRouter doesn't list fails the run: remove its card entry once no session uses it, or, while sessions still use it, mark it `"manual": true` (see [Manual](#manual)).
 - **Internal entries are skipped.** `openclaw/…` and `clawdbot/…` routing entries (e.g. `delivery-mirror`) stay at 0.
+- **Manual entries are skipped.** An entry with `"manual": true` is never looked up, so its hand-maintained prices are neither overwritten nor reported as a failure.
 - **Bounded.** Requests run 4 at a time with a 15 s per-request timeout under a 60 s overall budget, so stalled requests can't push the job past the runner timeout before the card is written.
 - **Estimates.** Token metrics are estimates, normalized against provider billing before invoicing, so a reseller price list is accurate enough.
 
@@ -237,5 +238,17 @@ Edit `token-rates.json` directly. The schema:
 ```
 
 Rates are in **dollars per million tokens** ($/MTok). All four categories (`input`, `output`, `cacheRead`, `cacheWrite`) are required for each model. The model key format is `{provider}/{model}` matching what appears in transcript data.
+
+Add `"manual": true` to an entry to maintain its prices by hand. `refresh-token-rates` then skips it: it never looks the model up on OpenRouter, never overwrites its rates and never fails because OpenRouter doesn't list it. Use this for a model OpenRouter doesn't carry (it otherwise fails every refresh), or to pin a negotiated price. Without the flag, a hand-added entry is refreshed from OpenRouter like any other.
+
+```json
+"vendor/private-model": {
+  "input": 1.0,
+  "output": 4.0,
+  "cacheRead": 0.1,
+  "cacheWrite": 0,
+  "manual": true
+}
+```
 
 After adding a model manually, restart the collector or wait for the next cron cycle. If the model is listed in `token-rates.pending.json`, the next refresh run clears it once it finds the model on the card.

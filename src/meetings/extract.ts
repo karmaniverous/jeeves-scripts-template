@@ -366,6 +366,10 @@ function main(): void {
         console.log(
           `[meetings] reportOnly catch-up: ${String(catchUp.caughtUp)} meetings, ${String(catchUp.queued)} actions queued, ${String(catchUp.remaining)} still pending`,
         );
+      if (catchUp.invalid.length)
+        console.warn(
+          `[meetings] WARNING: ${String(catchUp.invalid.length)} unreadable pending record(s) moved to meetings/pendingEmailActionsInvalid: ${catchUp.invalid.join(', ')}`,
+        );
     }
 
     // Save state

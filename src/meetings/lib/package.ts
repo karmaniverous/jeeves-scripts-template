@@ -77,7 +77,7 @@ interface LegacyManifest {
 
 export function updateMeetingPackage(
   meeting: MeetingData,
-  client: RunnerClient,
+  client: Pick<RunnerClient, 'setItem'>,
 ): { isNew: boolean; meetingId: string } {
   const meetingsDir = getMeetingsDir(meeting.account);
   const meetingDir = path.join(meetingsDir, meeting.meetingId);

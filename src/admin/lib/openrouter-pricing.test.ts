@@ -145,6 +145,43 @@ describe('fetchOpenRouterRates', () => {
     ).rejects.toThrow('lacks prompt/completion');
   });
 
+  it('rejects null prompt or completion instead of pricing it at $0', async () => {
+    for (const pricing of [
+      { prompt: null, completion: '0.000002' },
+      { prompt: '0.000001', completion: null },
+    ])
+      await expect(
+        fetchOpenRouterRates(
+          'm/x',
+          vi
+            .fn()
+            .mockResolvedValue({ status: 200, body: { data: { pricing } } }),
+        ),
+      ).rejects.toThrow('lacks prompt/completion');
+  });
+
+  it('still maps null cache prices to 0', async () => {
+    await expect(
+      fetchOpenRouterRates(
+        'm/x',
+        vi.fn().mockResolvedValue({
+          status: 200,
+          body: {
+            data: {
+              pricing: {
+                prompt: '0.000001',
+                completion: '0.000002',
+                input_cache_read: null,
+              },
+            },
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({
+      rates: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+    });
+  });
+
   it('rejects a response whose prices are booleans or arrays', async () => {
     const fetchJson = vi.fn().mockResolvedValue({
       status: 200,

@@ -8,12 +8,17 @@
  * account (via {@link getEmailAccounts}), reads cached threads from the account
  * silo (via {@link getEmailBaseForAccount}), detects meetings, extracts
  * participants and Gemini doc links, and writes per-meeting package directories.
+ * Gemini transcripts are not fetched here: the package gets `gemini_link.txt`
+ * and `fetch-notes` exports the Doc as the meeting's source mailbox.
  *
  * For each new meeting it enqueues the `meeting` label (and an archive when
- * the message is in the inbox and not `watch`ed) on `email-updates` through
+ * the message is in the inbox and not `watch`ed, unless
+ * `emailConfig.meetings.archive` is false) on `email-updates` through
  * label-actions, so nothing is enqueued when `emailConfig.reportOnly` is
- * true. Those actions are dropped, not deferred: the thread is still marked
- * processed, so they are not enqueued after reportOnly is turned off.
+ * true. Those actions are deferred, not dropped: the meeting is recorded as
+ * pending, and once reportOnly is off each run catches up to
+ * `CATCH_UP_PER_RUN` pending meetings using the messages' current labels
+ * (see lib/pending-actions.ts).
  */
 
 import fs from 'node:fs';
@@ -39,6 +44,11 @@ import {
   parseDateToYmd,
 } from './lib/detect.js';
 import { enqueueMeetingEmailActions } from './lib/email-actions.js';
+import {
+  catchUpMeetingEmailActions,
+  deferMeetingEmailActions,
+  messageKey,
+} from './lib/pending-actions.js';
 
 /** Check whether an archived message body contains a Fathom URL. */
 function hasFathomUrlInBody(
@@ -55,11 +65,7 @@ function hasFathomUrlInBody(
     ) !== null
   );
 }
-import {
-  fetchGeminiDoc,
-  type MeetingData,
-  updateMeetingPackage,
-} from './lib/package.js';
+import { type MeetingData, updateMeetingPackage } from './lib/package.js';
 
 interface CacheMessage {
   from?: string;
@@ -197,9 +203,12 @@ function loadArchiveMessage(
 function main(): void {
   let accounts: string[];
   let reportOnly: boolean;
+  let archiveMeetingEmails: boolean;
   try {
     accounts = getEmailAccounts();
-    reportOnly = loadPipelineConfig().emailConfig.reportOnly;
+    const { emailConfig } = loadPipelineConfig();
+    reportOnly = emailConfig.reportOnly;
+    archiveMeetingEmails = emailConfig.meetings?.archive ?? true;
   } catch {
     console.log(
       '[skip] Meeting extraction not configured \u2014 pipeline-config.json missing or invalid',
@@ -215,7 +224,11 @@ function main(): void {
   }
 
   if (reportOnly)
-    console.log('[meetings] reportOnly: no Gmail label actions enqueued');
+    console.log(
+      '[meetings] reportOnly: Gmail label actions deferred, not enqueued',
+    );
+  else if (!archiveMeetingEmails)
+    console.log('[meetings] emailConfig.meetings.archive is false: label only');
 
   const client = getRunnerClient();
 
@@ -223,7 +236,10 @@ function main(): void {
     discovered = 0,
     added = 0,
     skipped = 0,
-    queued = 0;
+    queued = 0,
+    deferred = 0;
+  // Current labels of every candidate message, for the reportOnly catch-up.
+  const currentLabels = new Map<string, string[]>();
 
   try {
     for (const account of accounts) {
@@ -231,6 +247,7 @@ function main(): void {
 
       const candidates = scanCache(account);
       scanned += candidates.length;
+      for (const c of candidates) currentLabels.set(messageKey(c), c.labels);
 
       for (const c of candidates) {
         discovered++;
@@ -282,12 +299,9 @@ function main(): void {
           participants,
         );
 
+        // The Doc itself is fetched later by fetch-notes, as the meeting's
+        // source mailbox; extraction only records the link.
         const geminiLink = findGeminiLink(bodyText) ?? findGeminiLink(bodyHtml);
-        let geminiTranscript: string | null = null;
-        if (geminiLink && source === 'gemini') {
-          console.log(`[meetings] Fetching Gemini doc: ${geminiLink}`);
-          geminiTranscript = fetchGeminiDoc(geminiLink);
-        }
 
         // Fathom URL detection + link capture
         const fathomDetection = detectFathomFromBodies(bodyText, bodyHtml);
@@ -304,7 +318,6 @@ function main(): void {
           from: c.from,
           participants,
           geminiLink,
-          geminiTranscript,
           bodyText,
           bodyHtml,
           extractedAt: nowIso(),
@@ -325,8 +338,16 @@ function main(): void {
           );
           added++;
 
-          // `meeting` label (+ archive if in inbox, not watched), gated on reportOnly
-          queued += enqueueMeetingEmailActions(client, c, reportOnly);
+          // `meeting` label (+ archive if enabled, in inbox and not watched).
+          // Under reportOnly they are deferred for a later catch-up.
+          if (reportOnly) {
+            deferMeetingEmailActions(client, sourceKey, c);
+            deferred++;
+          } else {
+            queued += enqueueMeetingEmailActions(client, c, false, {
+              archive: archiveMeetingEmails,
+            });
+          }
         } else {
           skipped++;
         }
@@ -334,6 +355,17 @@ function main(): void {
         // Mark processed regardless
         client.setItem('meetings', 'processedThreads', sourceKey, nowIso());
       }
+    }
+
+    if (!reportOnly) {
+      const catchUp = catchUpMeetingEmailActions(client, currentLabels, {
+        archive: archiveMeetingEmails,
+      });
+      queued += catchUp.queued;
+      if (catchUp.caughtUp > 0 || catchUp.remaining > 0)
+        console.log(
+          `[meetings] reportOnly catch-up: ${String(catchUp.caughtUp)} meetings, ${String(catchUp.queued)} actions queued, ${String(catchUp.remaining)} still pending`,
+        );
     }
 
     // Save state
@@ -345,7 +377,7 @@ function main(): void {
 
     const totalMeetings = client.countItems('meetings', 'index');
     console.log(
-      `[meetings] Done: scanned=${String(scanned)} discovered=${String(discovered)} added=${String(added)} skipped=${String(skipped)} queued=${String(queued)}`,
+      `[meetings] Done: scanned=${String(scanned)} discovered=${String(discovered)} added=${String(added)} skipped=${String(skipped)} queued=${String(queued)} deferred=${String(deferred)}`,
     );
     console.log(
       `[meetings] Index: ${String(totalMeetings)} meetings total (runner state)`,

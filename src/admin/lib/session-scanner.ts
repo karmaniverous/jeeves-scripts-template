@@ -68,14 +68,22 @@ function processOCFile(
   // Compute byte positions per line to know where to resume
   let bytePos = 0;
   let maxProcessedTs = cursor?.lastTimestamp ?? 0;
+  // Where the next run resumes: the first record in the open hour, or else
+  // the end of the last complete line. An unterminated tail counts as
+  // complete only once it parses (a half-written line is re-read later).
+  let resumeAt: number | null = null;
+  let completeEnd = byteOffset;
 
-  for (const line of allLines) {
+  for (const [i, line] of allLines.entries()) {
     const lineByteLen = Buffer.byteLength(line, 'utf8') + 1; // +1 for \n
     const lineStart = bytePos;
     bytePos += lineByteLen;
 
     // Skip lines we've already processed
     if (lineStart < byteOffset) continue;
+    // The last element after split is the unterminated tail (or empty).
+    const isTail = i === allLines.length - 1;
+    if (!isTail) completeEnd = bytePos;
     if (!line.trim()) continue;
 
     const parsed = parseUsageLine(line);
@@ -83,8 +91,13 @@ function processOCFile(
 
     // Only include records within range
     if (parsed.tsMs < fromMs) continue;
-    // Skip messages in the current (incomplete) hour
-    if (parsed.tsMs >= cutoffMs) continue;
+    // Stop at the current (incomplete) hour: this record and everything
+    // after it are counted by a later run, once the hour has closed.
+    if (parsed.tsMs >= cutoffMs) {
+      resumeAt = lineStart;
+      break;
+    }
+    if (isTail) completeEnd = bytePos;
 
     const modelKey = [parsed.provider, parsed.model].join('/');
     seenModels.add(modelKey);
@@ -98,9 +111,9 @@ function processOCFile(
     }
   }
 
-  // Update cursor: advance byteOffset to current file size
+  // Advance the cursor only past what was counted (or deliberately passed).
   cursors[fileName] = {
-    byteOffset: stat.size,
+    byteOffset: resumeAt ?? completeEnd,
     lastTimestamp: maxProcessedTs,
   };
 }

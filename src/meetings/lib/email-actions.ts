@@ -5,6 +5,8 @@
  * into a new meeting package: add the `meeting` label and, if the
  * message is in the inbox and not `watch`ed, archive it. A `watch` label
  * means a human moved the message back to the inbox, so it stays there.
+ * Archiving can be switched off with `emailConfig.meetings.archive: false`
+ * (labels only); it is on when the block is absent.
  *
  * The actions are enqueued through `enqueueEmailUpdates` (label-actions),
  * the single `emailConfig.reportOnly` gate for `email-updates` writes.
@@ -29,12 +31,20 @@ export interface MeetingMessageRef {
   labels: string[];
 }
 
+/** Options for {@link meetingEmailActions}. */
+export interface MeetingEmailActionOptions {
+  /** Archive inbox, un-`watch`ed messages. Default `true`. */
+  archive?: boolean;
+}
+
 /**
- * Actions for a new meeting: the `meeting` label, plus an archive when the
- * message is in `INBOX` and has no `watch` label.
+ * Actions for a new meeting: the `meeting` label, plus an archive when
+ * `archive` is on (default) and the message is in `INBOX` with no `watch`
+ * label.
  */
 export function meetingEmailActions(
   ref: MeetingMessageRef,
+  { archive = true }: MeetingEmailActionOptions = {},
 ): EmailUpdateAction[] {
   const base = {
     account: ref.account,
@@ -50,7 +60,7 @@ export function meetingEmailActions(
       reason: 'Meeting package created from this message',
     },
   ];
-  if (ref.labels.includes('INBOX') && !ref.labels.includes('watch'))
+  if (archive && ref.labels.includes('INBOX') && !ref.labels.includes('watch'))
     actions.push({
       ...base,
       action: 'archive',
@@ -68,7 +78,8 @@ export function enqueueMeetingEmailActions(
   client: Pick<RunnerClient, 'enqueue'>,
   ref: MeetingMessageRef,
   reportOnly: boolean,
+  options: MeetingEmailActionOptions = {},
 ): number {
-  const actions = meetingEmailActions(ref);
+  const actions = meetingEmailActions(ref, options);
   return enqueueEmailUpdates(client, actions, reportOnly) ? actions.length : 0;
 }

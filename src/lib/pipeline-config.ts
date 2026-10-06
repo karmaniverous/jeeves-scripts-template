@@ -161,11 +161,22 @@ const BackfillConfigSchema = z.object({
   windowDays: z.number().int().positive(),
 });
 
+/**
+ * Gmail actions meetings/extract.ts takes on a meeting's source email.
+ * Optional: absent keeps the original behaviour (archive inbox meeting
+ * emails). The `meeting` label is always applied (unless reportOnly).
+ */
+const MeetingsEmailConfigSchema = z.object({
+  /** Archive the source email out of INBOX after packaging (never `watch`ed mail). */
+  archive: z.boolean(),
+});
+
 const EmailConfigSchema = z.object({
   reportOnly: z.boolean(),
   receipt: ReceiptConfigSchema,
   digest: DigestConfigSchema,
   backfill: BackfillConfigSchema.optional(),
+  meetings: MeetingsEmailConfigSchema.optional(),
 });
 
 const PipelineConfigSchema = z.object({
@@ -189,6 +200,7 @@ export type ImapConnection = z.infer<typeof ImapConnectionSchema>;
 export type BucketsConfig = z.infer<typeof BucketsSchema>;
 export type EmailConfig = z.infer<typeof EmailConfigSchema>;
 export type BackfillConfig = z.infer<typeof BackfillConfigSchema>;
+export type MeetingsEmailConfig = z.infer<typeof MeetingsEmailConfigSchema>;
 
 // ── Cached loader ───────────────────────────────────────────────────
 

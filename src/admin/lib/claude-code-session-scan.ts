@@ -65,20 +65,35 @@ export function scanClaudeCodeSessions(
 
     let bytePos = 0;
     let maxProcessedTs = cursor?.lastTimestamp ?? 0;
+    // Where the next run resumes: the first record in the open hour, or else
+    // the end of the last complete line. An unterminated tail counts as
+    // complete only once it parses (a half-written line is re-read later).
+    let resumeAt: number | null = null;
+    let completeEnd = startOffset;
 
-    for (const line of allLines) {
+    for (const [i, line] of allLines.entries()) {
       const lineStart = bytePos;
       bytePos += Buffer.byteLength(line, 'utf8') + 1;
 
       if (lineStart < startOffset) continue;
       if (lineStart >= endOffset) break;
+      // The last element after split is the unterminated tail (or empty).
+      const isTail = i === allLines.length - 1;
+      if (!isTail) completeEnd = bytePos;
       if (!line.trim()) continue;
 
       const record = parseCCLine(line);
       if (!record) continue;
 
       if (record.tsMs < fromMs) continue;
-      if (record.tsMs >= cutoffMs) continue;
+      if (record.tsMs >= cutoffMs) {
+        // Recounting already-counted bytes: just skip. Otherwise stop here;
+        // this record and everything after it are counted once the hour closes.
+        if (options.countedOnly) continue;
+        resumeAt = lineStart;
+        break;
+      }
+      if (isTail) completeEnd = bytePos;
 
       seenModels.add(record.modelKey);
       const usage = normalizeUsage(
@@ -103,7 +118,7 @@ export function scanClaudeCodeSessions(
 
     if (!options.countedOnly)
       ccCursors[ccFile.cursorKey] = {
-        byteOffset: stat.size,
+        byteOffset: resumeAt ?? completeEnd,
         lastTimestamp: maxProcessedTs,
       };
     ccProcessed++;

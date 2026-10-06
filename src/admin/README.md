@@ -41,7 +41,7 @@ flowchart LR
 
 - Buckets: `TOKEN_METRICS_DIR` (`/opt/jeeves/state/jeeves-runner/token-metrics`, override with the `TOKEN_METRICS_DIR` environment variable), one file per UTC hour at `<yyyy>/<mm>/<hour>.json`.
 - Rate card: `token-rates.json` in that directory ($/MTok per model per token category), seeded from `config/token-rates.seed.json` when missing (never overwritten). `refresh-token-rates` dispatches an LLM worker to verify it against published API pricing and fails if the card is missing or invalid.
-- Cursors: runner state namespace `token-metrics`, keys `cursors` (legacy transcripts), `cursors-openclaw-db` (agent DB) and `cursors-claude-code`.
+- Cursors: runner state namespace `token-metrics`, keys `cursors` (legacy transcripts), `cursors-openclaw-db` (agent DB) and `cursors-claude-code`. A file cursor stops at the first record in the current (still-open) UTC hour, so the next run counts it once the hour closes; without one it stops at the end of the last complete line (an unterminated last line counts only once it parses). Each record is counted exactly once.
 
 ### Regeneration settings
 
@@ -99,7 +99,7 @@ All three entries in `jobs/admin.json` have `"prerequisite": null`. `refresh-tok
 | `lib/fresh-openclaw-history.ts` | Fresh-instance check: with no DB cursor, the collector starts it empty only when no legacy cursor entry and no bucket holding OpenClaw usage exist; otherwise it refuses until regenerate bootstraps it |
 | `lib/token-metrics-state.ts` | Runner-state port for the token-metrics namespace |
 | `lib/bucket-maintenance.ts` | Bucket backup (`.backup-<ts>.json`, never overwritten) and deletion for rebuilds |
-| `lib/claude-code-session-scan.ts` | Claude Code usage scan with byte cursors; `countedOnly` for bounded rebuilds |
+| `lib/claude-code-session-scan.ts` | Claude Code usage scan with byte cursors (stop at the open hour); `countedOnly` for bounded rebuilds |
 | `lib/dm-names.ts` / `lib/dm-name-sources.ts` | Name `slack:dm:<USERID>` channels via cache → Slack user map → gateway `member-info` |
 | `lib/openclaw-db/schema-v23-payloads.ts` | Schema-23 payload decoding and integrity checks (hot rows, cold and deleted/reset archives) |
 | `lib/claude-code-scanner.ts` | Scans Claude Code session JSONL files for Anthropic usage records |
@@ -112,11 +112,12 @@ All three entries in `jobs/admin.json` have `"prerequisite": null`. `refresh-tok
 | `lib/rate-card.ts` | Token rate card loader and cost calculator ($/MTok) |
 | `lib/rate-card-schema.ts` | Zod schema and validating file reader for the rate card |
 | `lib/rate-card-seed.ts` | Seed-if-missing: copies `config/token-rates.seed.json` into place, never overwrites |
+| `lib/refresh-rates-dispatch.ts` | Dispatches the refresh-token-rates worker and reads its final reply via gateway RPC (`chat.history` through `gatewayRpc`, never tools-invoke) |
 | `lib/refresh-rates-run.ts` | refresh-token-rates orchestration: pre-check, dispatch, RESULT check, post-check; decides job success |
 | `lib/refresh-rates-outcome.ts` | Worker RESULT-line contract (`updated` / `unchanged` / `failed: <reason>`) and parser |
 | `lib/refresh-rates-task.ts` | refresh-token-rates worker TASK prompt |
 | `lib/recalc-utils.ts` | Pure helpers for recalculation: hour enumeration and cursor reset logic |
 | `lib/resolve-openclaw-dist.ts` | Resolves global npm openclaw dist directory for patching |
-| `lib/session-scanner.ts` | Session file scanning with cursor management and range filtering (shared by collector and recalculator) |
+| `lib/session-scanner.ts` | Session file scanning with cursor management (stop at the open hour) and range filtering (shared by collector and recalculator) |
 | `lib/usage-parser.ts` | OpenClaw transcript line parser and usage normalizer (shared by collector and recalculator) |
 | `types/token-metrics.ts` | Shared types across collector and query layers |

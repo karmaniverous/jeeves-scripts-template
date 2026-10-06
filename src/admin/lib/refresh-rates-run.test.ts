@@ -53,6 +53,18 @@ describe('runRefreshTokenRates', () => {
     expect(d.fetchRates).not.toHaveBeenCalledWith('openclaw/delivery-mirror');
   });
 
+  it('starts the source with the note when the card has none, naming updates and additions', async () => {
+    const d = deps(
+      { ...card({ 'a/m': r(2, 10) }), source: '' },
+      { 'a/m': r(3, 10), 'b/new': r(1, 1) },
+      ['b/new'],
+    );
+    await runRefreshTokenRates(d);
+    expect(d.written[0].source).toBe(
+      'OpenRouter refresh 2026-10-06: a/m updated; b/new added from openrouter.ai/api/v1/model (base tier).',
+    );
+  });
+
   it('applies resolvable updates, then fails for unknown or erroring models', async () => {
     const d = deps(
       card({ 'a/m': r(1, 1), 'x/gone': r(1, 1), 'y/err': r(1, 1) }),

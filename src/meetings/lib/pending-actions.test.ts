@@ -11,6 +11,7 @@ import {
 import {
   catchUpMeetingEmailActions,
   deferMeetingEmailActions,
+  handleNewMeetingEmailActions,
   INVALID_COLLECTION,
   messageKey,
   PENDING_COLLECTION,
@@ -72,6 +73,45 @@ const msg = (id: string) => ({
   account: 'me@example.com',
   threadId: `t-${id}`,
   messageId: id,
+});
+
+describe('handleNewMeetingEmailActions', () => {
+  it('enqueues label and archive for an inbox message when reportOnly is off', () => {
+    const { client, queued, pending } = fakeClient();
+    const res = handleNewMeetingEmailActions(
+      client,
+      'k-a',
+      { ...msg('a'), labels: ['INBOX'] },
+      { reportOnly: false },
+    );
+    expect(res).toEqual({ queued: 2, deferred: false });
+    expect(queued.map((q) => q.action)).toEqual(['addLabel', 'archive']);
+    expect(pending().size).toBe(0);
+  });
+
+  it('honours archive: false when enqueueing', () => {
+    const { client, queued } = fakeClient();
+    handleNewMeetingEmailActions(
+      client,
+      'k-a',
+      { ...msg('a'), labels: ['INBOX'] },
+      { reportOnly: false, archive: false },
+    );
+    expect(queued.map((q) => q.action)).toEqual(['addLabel']);
+  });
+
+  it('defers under reportOnly: nothing enqueued, message recorded as pending', () => {
+    const { client, queued, pending } = fakeClient();
+    const res = handleNewMeetingEmailActions(
+      client,
+      'k-a',
+      { ...msg('a'), labels: ['INBOX'] },
+      { reportOnly: true },
+    );
+    expect(res).toEqual({ queued: 0, deferred: true });
+    expect(queued).toHaveLength(0);
+    expect(JSON.parse(pending().get('k-a') ?? '')).toEqual(msg('a'));
+  });
 });
 
 describe('deferMeetingEmailActions', () => {

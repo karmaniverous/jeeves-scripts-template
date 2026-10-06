@@ -215,7 +215,7 @@ If the collector encounters an unknown model, it:
 2. Records the unknown model ids in the pending file, `token-rates.pending.json` next to the card (a JSON array of ids).
 3. Triggers the rate card refresh job and exits with code 1.
 
-`refresh-token-rates` fetches each pending id from OpenRouter and adds it to the card once valid prices come back. Added ids leave the pending file; ids OpenRouter doesn't know stay in it and fail the run until someone adds them by hand (below). The next collector run (97 minutes later) picks up the updated card and processes the held data.
+`refresh-token-rates` fetches each pending id from OpenRouter and adds it to the card once valid prices come back. After writing the card, the refresh re-reads the pending file and drops only the ids now on the card, so ids the collector adds while a refresh is running are kept. Ids OpenRouter doesn't know stay in it and fail the run until someone adds them by hand, usually as a `manual` entry (below). The next collector run (97 minutes later) picks up the updated card and processes the held data.
 
 ### Manual
 

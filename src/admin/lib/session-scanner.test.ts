@@ -65,7 +65,12 @@ describe('scanAllSessions', () => {
     expect(result.buckets.size).toBe(1);
 
     const bucket = result.buckets.get('2026-06-15T10');
-    expect(bucket).toBeDefined();
+    const channels = Object.values(bucket?.channels ?? {});
+    expect(channels).toHaveLength(1);
+    const usage = channels[0].models['anthropic/claude-sonnet-4-6'];
+    expect(usage.input.count).toBe(200);
+    expect(usage.output.count).toBe(100);
+    expect(usage.input.cost).toBeGreaterThan(0);
   });
 
   it('respects time range filtering', async () => {

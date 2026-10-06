@@ -23,6 +23,7 @@ import type { RunnerClient } from '@karmaniverous/jeeves-runner';
 import {
   enqueueMeetingEmailActions,
   type MeetingEmailActionOptions,
+  type MeetingMessageRef,
 } from './email-actions.js';
 
 /** Runner-state namespace and collection holding pending meeting actions. */
@@ -53,6 +54,29 @@ export type PendingClient = Pick<
 /** Key of a message in the current-labels map. */
 export function messageKey(m: PendingMessage): string {
   return `${m.account}\u0000${m.threadId}\u0000${m.messageId}`;
+}
+
+/**
+ * Handle a newly packaged meeting's Gmail actions: enqueue them, or, under
+ * `reportOnly`, record them as pending for a later catch-up.
+ *
+ * @returns How many actions were queued, and whether they were deferred.
+ */
+export function handleNewMeetingEmailActions(
+  client: Pick<RunnerClient, 'setItem' | 'enqueue'>,
+  sourceKey: string,
+  ref: MeetingMessageRef,
+  options: MeetingEmailActionOptions & { reportOnly: boolean },
+): { queued: number; deferred: boolean } {
+  const { reportOnly, ...actionOptions } = options;
+  if (reportOnly) {
+    deferMeetingEmailActions(client, sourceKey, ref);
+    return { queued: 0, deferred: true };
+  }
+  return {
+    queued: enqueueMeetingEmailActions(client, ref, reportOnly, actionOptions),
+    deferred: false,
+  };
 }
 
 /** Record that a new meeting's Gmail actions were suppressed by reportOnly. */

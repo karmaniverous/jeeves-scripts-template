@@ -5,7 +5,8 @@
  * refresh-token-rates. The collector can't pass arguments through the
  * runner trigger, so it records the ids it found missing from the rate
  * card here; the refresh job adds each one once OpenRouter returns valid
- * prices and rewrites the file with whatever is still unresolved.
+ * prices. After writing the card it re-reads this file and drops only the
+ * ids now on the card, so ids the collector adds mid-refresh are kept.
  *
  * Format: a JSON array of model-id strings. A missing, unreadable or
  * malformed file reads as empty (the collector re-records unknown models

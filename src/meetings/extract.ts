@@ -43,10 +43,9 @@ import {
   normalizeMeetingTitle,
   parseDateToYmd,
 } from './lib/detect.js';
-import { enqueueMeetingEmailActions } from './lib/email-actions.js';
 import {
   catchUpMeetingEmailActions,
-  deferMeetingEmailActions,
+  handleNewMeetingEmailActions,
   messageKey,
 } from './lib/pending-actions.js';
 
@@ -340,14 +339,12 @@ function main(): void {
 
           // `meeting` label (+ archive if enabled, in inbox and not watched).
           // Under reportOnly they are deferred for a later catch-up.
-          if (reportOnly) {
-            deferMeetingEmailActions(client, sourceKey, c);
-            deferred++;
-          } else {
-            queued += enqueueMeetingEmailActions(client, c, false, {
-              archive: archiveMeetingEmails,
-            });
-          }
+          const handled = handleNewMeetingEmailActions(client, sourceKey, c, {
+            reportOnly,
+            archive: archiveMeetingEmails,
+          });
+          queued += handled.queued;
+          if (handled.deferred) deferred++;
         } else {
           skipped++;
         }

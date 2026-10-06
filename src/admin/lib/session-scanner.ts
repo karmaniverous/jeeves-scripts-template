@@ -18,6 +18,7 @@ import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
 import { mergeUsage, tsToHour } from './bucket-io.js';
 import { detectChannel, registerChannelName } from './channel-mapper.js';
 import { scanClaudeCodeSessions } from './claude-code-session-scan.js';
+import { jsonlLines, ResumeCursor } from './jsonl-cursor.js';
 import { normalizeUsage, parseUsageLine } from './usage-parser.js';
 
 /** Result returned by scanAllSessions. */
@@ -65,28 +66,14 @@ function processOCFile(
     }
   }
 
-  // Compute byte positions per line to know where to resume
-  let bytePos = 0;
   let maxProcessedTs = cursor?.lastTimestamp ?? 0;
-  // Where the next run resumes: the first record in the open hour, or else
-  // the end of the last complete line. An unterminated tail counts as
-  // complete only once it parses (a half-written line is re-read later).
-  let resumeAt: number | null = null;
-  let completeEnd = byteOffset;
+  const resume = new ResumeCursor(byteOffset);
 
-  for (const [i, line] of allLines.entries()) {
-    const lineByteLen = Buffer.byteLength(line, 'utf8') + 1; // +1 for \n
-    const lineStart = bytePos;
-    bytePos += lineByteLen;
+  for (const line of jsonlLines(content, byteOffset)) {
+    resume.reach(line);
+    if (!line.text.trim()) continue;
 
-    // Skip lines we've already processed
-    if (lineStart < byteOffset) continue;
-    // The last element after split is the unterminated tail (or empty).
-    const isTail = i === allLines.length - 1;
-    if (!isTail) completeEnd = bytePos;
-    if (!line.trim()) continue;
-
-    const parsed = parseUsageLine(line);
+    const parsed = parseUsageLine(line.text);
     if (!parsed) continue;
 
     // Only include records within range
@@ -94,10 +81,10 @@ function processOCFile(
     // Stop at the current (incomplete) hour: this record and everything
     // after it are counted by a later run, once the hour has closed.
     if (parsed.tsMs >= cutoffMs) {
-      resumeAt = lineStart;
+      resume.stopAt(line);
       break;
     }
-    if (isTail) completeEnd = bytePos;
+    resume.consume(line);
 
     const modelKey = [parsed.provider, parsed.model].join('/');
     seenModels.add(modelKey);
@@ -113,7 +100,7 @@ function processOCFile(
 
   // Advance the cursor only past what was counted (or deliberately passed).
   cursors[fileName] = {
-    byteOffset: resumeAt ?? completeEnd,
+    byteOffset: resume.offset,
     lastTimestamp: maxProcessedTs,
   };
 }

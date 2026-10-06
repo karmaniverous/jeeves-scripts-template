@@ -62,7 +62,7 @@ Each meeting lives in a directory under `{silo}/meetings/{meetingId}/`:
 | `lib/meeting-schema.ts` | Canonical meeting.json Zod schema, `writeMeetingMeta()`, sort timestamp computation |
 | `lib/detect.ts` | Meeting detection — subject matching, title normalization, participant extraction, Fathom URL detection, meeting ID generation |
 | `lib/email-actions.ts` | Gmail actions for a new meeting (`meeting` label, archive if in the inbox and not `watch`ed; archive switchable via `emailConfig.meetings.archive`), enqueued via `enqueueEmailUpdates` (the `reportOnly` gate) |
-| `lib/pending-actions.ts` | Defers a new meeting's Gmail actions while `reportOnly` is on and catches them up afterwards (see [reportOnly catch-up](#reportonly-catch-up)) |
+| `lib/pending-actions.ts` | Enqueues a new meeting's Gmail actions, or defers them while `reportOnly` is on (`handleNewMeetingEmailActions`), and catches them up afterwards (see [reportOnly catch-up](#reportonly-catch-up)) |
 | `lib/package.ts` | Creates/updates meeting package directories and artifacts, manages runner-state index |
 | `lib/meetings-dirs.ts` | Discovers all meetings directories across silos via `getEntityDirs()` |
 | `lib/doc-fetch.ts` | Fetches Google Doc transcripts via `gog` CLI for meetings with `gemini_link.txt` |

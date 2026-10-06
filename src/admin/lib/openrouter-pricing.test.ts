@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   fetchOpenRouterRates,
+  httpGetJson,
   OPENROUTER_MODEL_URL,
   perTokenToPerMTok,
   toOpenRouterId,
@@ -189,6 +190,52 @@ describe('fetchOpenRouterRates', () => {
     });
     await expect(fetchOpenRouterRates('m/x', fetchJson)).rejects.toThrow(
       'invalid OpenRouter price for m/x.prompt: false',
+    );
+  });
+});
+
+describe('httpGetJson', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('GETs JSON with a timeout signal and returns status and body', async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response('{"data":{"id":"m/x"}}', { status: 200 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(httpGetJson('https://example.test/m')).resolves.toEqual({
+      status: 200,
+      body: { data: { id: 'm/x' } },
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://example.test/m');
+    expect(init?.headers).toEqual({ Accept: 'application/json' });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('returns a null body (keeping the status) when the response is not JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() =>
+        Promise.resolve(
+          new Response('<html>Not Found</html>', { status: 404 }),
+        ),
+      ),
+    );
+    await expect(httpGetJson('https://example.test/m')).resolves.toEqual({
+      status: 404,
+      body: null,
+    });
+  });
+
+  it('propagates network errors (the fetch budget reports them per model)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(() => Promise.reject(new TypeError('fetch failed'))),
+    );
+    await expect(httpGetJson('https://example.test/m')).rejects.toThrow(
+      'fetch failed',
     );
   });
 });

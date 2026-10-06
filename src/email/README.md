@@ -202,7 +202,7 @@ Gmail polling via the `gog` CLI (OAuth client or service-account mailboxes). Han
 
 ### Receipt forwarding settings
 
-`emailConfig.receipt.forwardEnabled` (on/off) and `emailConfig.receipt.sparkReceiptsForwardTo` (destination) are validated by `pipeline-config.ts`, but no template script forwards receipts; instance scripts read them. The deprecated key `forwardJGS` is still read as an alias with a one-line warning (see [Configuration Files](../lib/README.md#configuration-files)).
+`emailConfig.receipt.forwardEnabled` (on/off) and `emailConfig.receipt.sparkReceiptsForwardTo` (destination) are validated by `pipeline-config-email.ts`, but no template script forwards receipts; instance scripts read them. The deprecated key `forwardJGS` is still read as an alias with a one-line warning (see [Configuration Files](../lib/README.md#configuration-files)).
 
 ## Output Format
 

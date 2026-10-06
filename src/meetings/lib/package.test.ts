@@ -47,44 +47,116 @@ afterAll(() => {
   fs.rmSync(DEFAULT_MEETINGS_DIR, { recursive: true, force: true });
 });
 
+const base = (over: Partial<pkg.MeetingData> = {}): pkg.MeetingData => ({
+  meetingId: 'm94',
+  account: 'no-domain', // routes to DEFAULT_MEETINGS_DIR
+  threadId: 't1',
+  messageId: 'msg00001',
+  subject: 'Notes: weekly sync',
+  normalizedTitle: 'weekly sync',
+  meetingDate: '2026-10-06',
+  source: 'gemini',
+  from: 'gemini-notes@google.com',
+  participants: ['a@example.com'],
+  geminiLink: 'https://docs.google.com/document/d/abc123/edit',
+  bodyText: 'body',
+  bodyHtml: '',
+  extractedAt: '2026-10-06T00:00:00.000Z',
+  ...over,
+});
+
+const dirOf = (id: string) => path.join(DEFAULT_MEETINGS_DIR, id);
+const manifest = (id: string): Record<string, unknown> =>
+  JSON.parse(
+    fs.readFileSync(path.join(dirOf(id), 'meeting.json'), 'utf8'),
+  ) as Record<string, unknown>;
+
 describe('updateMeetingPackage (Gemini, #94)', () => {
   it('writes gemini_link.txt without reading docsExportAccount or running gog', () => {
     const setItem = vi.fn<RunnerClient['setItem']>();
-    const link = 'https://docs.google.com/document/d/abc123/edit';
-    const { isNew, meetingId } = pkg.updateMeetingPackage(
-      {
-        meetingId: 'm94',
-        account: 'no-domain', // routes to DEFAULT_MEETINGS_DIR
-        threadId: 't1',
-        messageId: 'msg00001',
-        subject: 'Notes: weekly sync',
-        normalizedTitle: 'weekly sync',
-        meetingDate: '2026-10-06',
-        source: 'gemini',
-        from: 'gemini-notes@google.com',
-        participants: ['a@example.com'],
-        geminiLink: link,
-        bodyText: 'body',
-        bodyHtml: '',
-        extractedAt: '2026-10-06T00:00:00.000Z',
-      },
-      { setItem },
-    );
+    const m = base();
+    const { isNew, meetingId } = pkg.updateMeetingPackage(m, { setItem });
 
     expect(isNew).toBe(true);
-    const dir = path.join(DEFAULT_MEETINGS_DIR, meetingId);
+    const dir = dirOf(meetingId);
     expect(fs.readFileSync(path.join(dir, 'gemini_link.txt'), 'utf8')).toBe(
-      `${link}\n`,
+      `${m.geminiLink ?? ''}\n`,
     );
     expect(fs.existsSync(path.join(dir, 'transcript.txt'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'gemini-notes.txt'))).toBe(false);
+    expect(manifest(meetingId)['hasTranscript']).toBe(false);
     expect(mocks.getRef).not.toHaveBeenCalled();
     expect(mocks.spawnSync).not.toHaveBeenCalled();
     expect(mocks.execSync).not.toHaveBeenCalled();
     expect(mocks.execFileSync).not.toHaveBeenCalled();
   });
+});
 
-  it('no longer exports an inline Gemini fetcher', () => {
-    expect('fetchGeminiDoc' in pkg).toBe(false);
+describe('updateMeetingPackage (merge and dedup)', () => {
+  it('reports a repeated source as not new and leaves the package unchanged', () => {
+    const setItem = vi.fn<RunnerClient['setItem']>();
+    const m = base({ meetingId: 'dedup' });
+    pkg.updateMeetingPackage(m, { setItem });
+    const before = manifest('dedup');
+    expect(pkg.updateMeetingPackage(m, { setItem })).toEqual({
+      isNew: false,
+      meetingId: 'dedup',
+    });
+    expect(manifest('dedup')).toEqual(before);
+    expect(setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges a second source: participants unioned, artifacts per source, index updated', () => {
+    const setItem = vi.fn<RunnerClient['setItem']>();
+    pkg.updateMeetingPackage(base({ meetingId: 'merge' }), { setItem });
+    pkg.updateMeetingPackage(
+      base({
+        meetingId: 'merge',
+        source: 'fathom',
+        messageId: 'msg00002',
+        participants: ['a@example.com', 'b@example.com'],
+        geminiLink: null,
+        bodyHtml: '<p>x</p>',
+        fathomKind: 'share',
+        fathomUrl: 'https://fathom.video/share/xyz',
+      }),
+      { setItem },
+    );
+    const m = manifest('merge');
+    expect(m['participants']).toEqual(['a@example.com', 'b@example.com']);
+    expect((m['sources'] as { key: string }[]).map((s) => s.key)).toEqual([
+      'gemini:t1:msg00001',
+      'fathom:t1:msg00002',
+    ]);
+    expect(m['artifacts']).toEqual([
+      'gemini-msg00001.txt',
+      'gemini_link.txt',
+      'fathom-msg00002.txt',
+      'fathom-msg00002.html',
+      'fathom_link.txt',
+    ]);
+    expect(m['fathomUrl']).toBe('https://fathom.video/share/xyz');
+    const [ns, key, item, value] = setItem.mock.calls[1];
+    expect([ns, key, item]).toEqual(['meetings', 'index', 'merge']);
+    expect(JSON.parse(value ?? '')).toMatchObject({
+      sourceCount: 2,
+      artifactCount: 5,
+    });
+  });
+
+  it('never overwrites an existing gemini_link.txt', () => {
+    const setItem = vi.fn<RunnerClient['setItem']>();
+    pkg.updateMeetingPackage(base({ meetingId: 'keep' }), { setItem });
+    pkg.updateMeetingPackage(
+      base({
+        meetingId: 'keep',
+        messageId: 'msg00003',
+        geminiLink: 'https://docs.google.com/document/d/other/edit',
+      }),
+      { setItem },
+    );
+    expect(
+      fs.readFileSync(path.join(dirOf('keep'), 'gemini_link.txt'), 'utf8'),
+    ).toContain('abc123');
   });
 });

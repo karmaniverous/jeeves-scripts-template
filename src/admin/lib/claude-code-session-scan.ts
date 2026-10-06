@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import type { CursorState, HourlyBucket } from '../types/token-metrics.js';
 import { mergeUsage, tsToHour } from './bucket-io.js';
 import { listCCSessionFiles, parseCCLine } from './claude-code-scanner.js';
+import { jsonlLines, ResumeCursor } from './jsonl-cursor.js';
 import { normalizeUsage } from './usage-parser.js';
 
 /** Options for a Claude Code scan. */
@@ -61,28 +62,16 @@ export function scanClaudeCodeSessions(
 
     const startOffset = options.countedOnly ? 0 : stored;
     const endOffset = options.countedOnly ? stored : Infinity;
-    const allLines = fs.readFileSync(ccFile.filePath, 'utf8').split('\n');
+    const content = fs.readFileSync(ccFile.filePath, 'utf8');
 
-    let bytePos = 0;
     let maxProcessedTs = cursor?.lastTimestamp ?? 0;
-    // Where the next run resumes: the first record in the open hour, or else
-    // the end of the last complete line. An unterminated tail counts as
-    // complete only once it parses (a half-written line is re-read later).
-    let resumeAt: number | null = null;
-    let completeEnd = startOffset;
+    const resume = new ResumeCursor(startOffset);
 
-    for (const [i, line] of allLines.entries()) {
-      const lineStart = bytePos;
-      bytePos += Buffer.byteLength(line, 'utf8') + 1;
+    for (const line of jsonlLines(content, startOffset, endOffset)) {
+      resume.reach(line);
+      if (!line.text.trim()) continue;
 
-      if (lineStart < startOffset) continue;
-      if (lineStart >= endOffset) break;
-      // The last element after split is the unterminated tail (or empty).
-      const isTail = i === allLines.length - 1;
-      if (!isTail) completeEnd = bytePos;
-      if (!line.trim()) continue;
-
-      const record = parseCCLine(line);
+      const record = parseCCLine(line.text);
       if (!record) continue;
 
       if (record.tsMs < fromMs) continue;
@@ -90,10 +79,10 @@ export function scanClaudeCodeSessions(
         // Recounting already-counted bytes: just skip. Otherwise stop here;
         // this record and everything after it are counted once the hour closes.
         if (options.countedOnly) continue;
-        resumeAt = lineStart;
+        resume.stopAt(line);
         break;
       }
-      if (isTail) completeEnd = bytePos;
+      resume.consume(line);
 
       seenModels.add(record.modelKey);
       const usage = normalizeUsage(
@@ -118,7 +107,7 @@ export function scanClaudeCodeSessions(
 
     if (!options.countedOnly)
       ccCursors[ccFile.cursorKey] = {
-        byteOffset: resumeAt ?? completeEnd,
+        byteOffset: resume.offset,
         lastTimestamp: maxProcessedTs,
       };
     ccProcessed++;

@@ -1,5 +1,14 @@
 # jeeves-scripts
 
+> [!WARNING]
+> **Deprecated, and about to be archived.** This template is replaced by [`@karmaniverous/jeeves-scripts-core`](https://github.com/karmaniverous/jeeves-scripts-core). The shared pipeline (Slack, email, Jira, Linear, GitHub, calendar, meetings, Drive, token metrics, dispatchers) and its skills now ship as a versioned npm package, and an instance repo holds only its own code and `jeeves-scripts.json`.
+>
+> - **New instance:** `npx @karmaniverous/jeeves-scripts-core init`, which scaffolds the repo and pins core exactly. Don't clone this template.
+> - **Existing instance cloned from this template:** migrate it to core: you move your instance-owned code into a plugin, delete the vendored pipeline, and repoint the runner jobs at the launcher (`bin/jeeves-scripts.js run <id>`).
+> - **Issues:** file them on [jeeves-scripts-core](https://github.com/karmaniverous/jeeves-scripts-core/issues). The open issues here that were still relevant have been moved there.
+>
+> The rest of this README describes the template as it was, and isn't maintained.
+
 TypeScript scripts for [jeeves-runner](https://github.com/karmaniverous/jeeves-runner). Each script is a standalone `.ts` file executed by the runner on a schedule, via queue drain, or manually via `tsx`.
 
 ## Relationship to jeeves-runner
